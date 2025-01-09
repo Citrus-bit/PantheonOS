@@ -4,11 +4,10 @@ import inspect
 from typing import Optional, List, Callable, Union
 from uuid import uuid4
 
-from funcdesc.parse import parse_func
 from pydantic import BaseModel
 from litellm import acompletion, stream_chunk_builder
 
-from ..utils.misc import desc_to_openai_function
+from ..utils.misc import func_to_openai_dict
 from ..types import AgentResponse, ResponseDetails, AgentInput
 
 
@@ -46,8 +45,8 @@ class Agent:
         functions = []
 
         for func in self.functions.values():
-            func_dict = desc_to_openai_function(
-                parse_func(func),
+            func_dict = func_to_openai_dict(
+                func,
                 skip_params=[__CTX_VARS_NAME__],
             )
             functions.append(func_dict)

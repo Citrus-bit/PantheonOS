@@ -77,6 +77,9 @@ class Repl:
         self.console.print()
 
     async def run(self, message: str | dict | None = None):
+        import logging
+        logging.getLogger().setLevel(logging.WARNING)
+
         self.print_greeting()
 
         def ask_user():

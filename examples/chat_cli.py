@@ -5,6 +5,7 @@ import asyncio
 from pantheum.repl import Repl
 from pantheum.agent import Agent
 from pantheum.tools.duckduckgo import duckduckgo_search
+from pantheum.tools.web_crawl import web_crawl
 
 
 scifi_fan = Agent(
@@ -16,9 +17,11 @@ scifi_fan = Agent(
 
 search_engine_expert = Agent(
     name="search_engine_expert",
-    instructions="You are an expert in search engines. You can use the duckduckgo_search tool to search the web.",
+    instructions="You are an expert in search engines. " \
+        "You can use the duckduckgo_search tool to search the web. " \
+        "You can also use the web_crawl tool to crawl the web.",
     model="gpt-4o-mini",
-    tools=[duckduckgo_search],
+    tools=[duckduckgo_search, web_crawl],
 )
 
 

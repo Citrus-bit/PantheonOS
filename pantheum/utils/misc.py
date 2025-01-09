@@ -1,19 +1,17 @@
-from funcdesc.desc import Description, NotDef
-from typing import List
+from typing import Callable, List
+
+from funcdesc.desc import NotDef
+from funcdesc.pydantic import parse_func, desc_to_pydantic
+from openai import pydantic_function_tool
 
 
-def desc_to_openai_function(
-        desc: Description,
+def func_to_openai_dict(
+        func: Callable,
         skip_params: List[str] = []) -> dict:
-    type_map = {
-        str: "string",
-        int: "integer",
-        float: "number",
-        bool: "boolean",
-        list: "array",
-        dict: "object",
-        type(None): "null",
-    }
+    desc = parse_func(func)
+    pydantic_model = desc_to_pydantic(desc)['inputs']
+    oai_func_dict = pydantic_function_tool(pydantic_model)
+    oai_params = oai_func_dict["function"]["parameters"]["properties"]
 
     parameters = {}
     required = []
@@ -21,11 +19,20 @@ def desc_to_openai_function(
     for arg in desc.inputs:
         if arg.name in skip_params:
             continue
-        tp = type_map.get(arg.type, "string")
-        parameters[arg.name] = {
-            "type": tp,
+
+        pdict = {
             "description": arg.doc or "",
         }
+        oai_pdict = oai_params[arg.name]
+        if "type" in oai_pdict:
+            pdict["type"] = oai_pdict["type"]
+        if "items" in oai_pdict:
+            pdict["items"] = oai_pdict["items"]
+        if "anyOf" in oai_pdict:
+            pdict["anyOf"] = oai_pdict["anyOf"]
+
+        parameters[arg.name] = pdict
+
         if arg.default is NotDef:
             required.append(arg.name)
 

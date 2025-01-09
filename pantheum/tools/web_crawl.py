@@ -6,8 +6,14 @@ async def web_crawl(urls: list[str]) -> list[str]:
     """
     Crawl the web and return the contents of the pages.
     Result will be in markdown format.
+
+    Args:
+        urls: List of URLs to crawl.
+
+    Returns:
+        List of contents of the pages.
     """
-    async with AsyncWebCrawler(verbose=True) as crawler:
+    async with AsyncWebCrawler(verbose=False) as crawler:
         tasks = [crawler.arun(url=url) for url in urls]
         results = await asyncio.gather(*tasks)
     contents = []
