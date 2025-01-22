@@ -9,7 +9,7 @@ class ResponseDetails(BaseModel):
 
 class AgentResponse(BaseModel):
     agent_name: str
-    content: str | BaseModel
+    content: Any
     details: Any
 
 

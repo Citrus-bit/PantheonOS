@@ -58,17 +58,13 @@ def smart_func(
     )
 
     val = desc.outputs[0]
-    Response = create_model(
-        "Response",
-        result=(val.type or str, value_to_field(val))
-    )
 
     agent = Agent(
         name="smart_func",
         instructions=desc.doc,
         model=model,
         tools=tools,
-        response_format=Response,
+        response_format=val.type,
         use_short_term_memory=use_short_term_memory,
         short_term_memory=short_term_memory,
     )
@@ -79,14 +75,14 @@ def smart_func(
             merged = _merge_args(desc, args, kwargs)
             input = Input(**merged)
             response = await agent.run(input)
-            return response.content.result
+            return response.content
     else:
         @wraps(func)
         def wrapper(*args, **kwargs):
             merged = _merge_args(desc, args, kwargs)
             input = Input(**merged)
             response = asyncio.run(agent.run(input))
-            return response.content.result
+            return response.content
 
     return wrapper
 

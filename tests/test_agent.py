@@ -67,6 +67,12 @@ async def test_structured_output():
     assert isinstance(resp.details.messages[0]["parsed"], SciFiBookList)
     assert len(resp.details.messages[0]["parsed"].books) == 5
 
+    resp = await agent.run(
+        [{"role": "user", "content": "1 + 1 = 2?"}],
+        response_format=bool,
+    )
+    assert resp.content is True
+
 
 async def test_structured_output_with_tool_use():
     agent = Agent(

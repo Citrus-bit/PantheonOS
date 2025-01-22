@@ -1,10 +1,10 @@
 import copy
 import json
 import inspect
-from typing import Optional, List, Callable, Union
+from typing import Callable, Any
 from uuid import uuid4
 
-from pydantic import BaseModel
+from pydantic import BaseModel, create_model
 from litellm import acompletion, stream_chunk_builder
 
 from .utils.misc import func_to_openai_dict
@@ -26,10 +26,10 @@ class Agent:
         name: str,
         instructions: str,
         model: str = "gpt-4o-mini",
-        tools: Optional[List[Callable]] = None,
-        response_format: Optional[BaseModel] = None,
+        tools: list[Callable] | None = None,
+        response_format: Any | None = None,
         use_short_term_memory: bool = True,
-        short_term_memory: Optional[List[dict]] = None,
+        short_term_memory: list[dict] | None = None,
     ):
         self.id = uuid4()
         self.name = name
@@ -52,7 +52,7 @@ class Agent:
         self.functions[func.__name__] = func
         return self
 
-    def _convert_functions(self) -> List[dict]:
+    def _convert_functions(self) -> list[dict]:
         """Convert function to the format that the model can understand."""
         functions = []
 
@@ -65,7 +65,7 @@ class Agent:
         return functions
 
     async def handle_tool_calls(
-            self, tool_calls: List, context_variables: dict):
+            self, tool_calls: list, context_variables: dict):
         messages = []
         for call in tool_calls:
             try:
@@ -92,12 +92,12 @@ class Agent:
 
     async def run_stream(
         self,
-        messages: List[dict],
-        process_chunk: Optional[Callable] = None,
-        process_step_message: Optional[Callable] = None,
-        max_turns: Union[int, float] = float("inf"),
-        context_variables: Optional[dict] = None,
-        response_format: Optional[BaseModel] = None,
+        messages: list[dict],
+        process_chunk: Callable | None = None,
+        process_step_message: Callable | None = None,
+        max_turns: int | float = float("inf"),
+        context_variables: dict | None = None,
+        response_format: Any | None = None,
         tool_use: bool = True,
     ):
         response_format = response_format or self.response_format
@@ -106,6 +106,14 @@ class Agent:
         init_len = len(history)
         if context_variables is None:
             context_variables = {}
+
+        if response_format:
+            Response = create_model(
+                "Response",
+                result=(response_format, ...),
+            )
+        else:
+            Response = None
 
         while len(history) - init_len < max_turns:
 
@@ -122,7 +130,7 @@ class Agent:
                 model=self.model,
                 messages=history_clear_parsed,
                 tools=tools,
-                response_format=response_format,
+                response_format=Response,
                 stream=True,
             )
             async for chunk in response:
@@ -134,11 +142,11 @@ class Agent:
             complete_resp = stream_chunk_builder(response.chunks)
             message = complete_resp.choices[0].message.model_dump()
 
-            if response_format is not None:
+            if Response is not None:
                 content = message.get("content")
                 if content:
-                    parsed = response_format.model_validate_json(content)
-                    message["parsed"] = parsed
+                    parsed = Response.model_validate_json(content)
+                    message["parsed"] = parsed.result
 
             history.append(message)
             if process_step_message:
@@ -165,7 +173,7 @@ class Agent:
             self,
             msg: AgentInput,
             use_short_term_memory: bool,
-            ) -> List[dict]:
+            ) -> list[dict]:
         assert isinstance(msg, (list, str, BaseModel, AgentResponse)), \
             "Message must be a list, string, BaseModel or AgentResponse"
         if isinstance(msg, AgentResponse):
@@ -196,11 +204,11 @@ class Agent:
 
     async def run(
             self, msg: AgentInput,
-            response_format: Optional[BaseModel] = None,
+            response_format: Any | None = None,
             tool_use: bool = True,
-            context_variables: Optional[dict] = None,
-            process_chunk: Optional[Callable] = None,
-            process_step_message: Optional[Callable] = None,
+            context_variables: dict | None = None,
+            process_chunk: Callable | None = None,
+            process_step_message: Callable | None = None,
             use_short_term_memory: bool | None = None,
             ) -> AgentResponse:
         """Run the agent.

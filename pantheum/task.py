@@ -11,16 +11,14 @@ class Task:
         self.goal = goal
 
 
-class BoolResponse(BaseModel):
-    result: bool
-
-
 class TasksSolver:
     def __init__(
             self,
-            tasks: list[Task],
+            tasks: list[Task] | Task,
             agent: Agent,
         ):
+        if isinstance(tasks, Task):
+            tasks = [tasks]
         self.tasks = tasks
         self.agent = agent
         self.console = Console()
@@ -56,8 +54,8 @@ class TasksSolver:
             resp = await self.agent.run(prompt, process_step_message=self.process_step_message)
             self.console.print(resp.content)
             while True:
-                resp = await self.agent.run(f"The task {task.name} has been solved or not?", response_format=BoolResponse)
-                if resp.content.result:
+                resp = await self.agent.run(f"The task {task.name} has been solved or not?", response_format=bool)
+                if resp.content:
                     self.console.print(f"[green]Task [blue]{task.name}[/blue] has been solved.[/green]")
                     break
                 else:
