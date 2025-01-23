@@ -7,7 +7,6 @@ from textual.containers import Vertical, Horizontal, VerticalScroll
 from ..meeting import (
     Meeting, Message, message_to_record,
     ToolEvent, ToolResponseEvent, ThinkingEvent, Record,
-    TeamMeeting,
 )
 
 
@@ -64,10 +63,7 @@ class Repl(App):
         self._meeting_task = None
         self._process_messages_task = None
         self._ui_task = None
-        if isinstance(meeting, TeamMeeting):
-            self.default_message_to = [meeting.leader.name]
-        else:
-            self.default_message_to = default_message_to
+        self.default_message_to = default_message_to
 
     def compose(self) -> ComposeResult:
         yield Vertical(
