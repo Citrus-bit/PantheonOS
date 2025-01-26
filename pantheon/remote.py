@@ -64,7 +64,7 @@ class ToolSet(ABC):
         """Setup the toolset before running it."""
         pass
 
-    async def run(self, log_level: str = "WARNING"):
+    async def run(self, log_level: str = "INFO"):
         from loguru import logger
         logger.remove()
         logger.add(sys.stderr, level=log_level)
@@ -130,3 +130,12 @@ async def run_toolsets(
         await job.cancel()
     await engine.wait_async()
 
+
+def toolset_cli(toolset_type: type[ToolSet], default_service_name: str):
+    import fire
+
+    async def main(service_name: str = default_service_name, **kwargs):
+        toolset = toolset_type(service_name, worker_params=kwargs)
+        await toolset.run()
+
+    fire.Fire(main)

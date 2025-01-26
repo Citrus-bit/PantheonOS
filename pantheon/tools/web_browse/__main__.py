@@ -1,5 +1,5 @@
 from . import WebBrowseToolSet
-import asyncio
+from ...remote import toolset_cli
 
-toolset = WebBrowseToolSet("web_browse")
-asyncio.run(toolset.run())
+
+toolset_cli(WebBrowseToolSet, "web_browse")
