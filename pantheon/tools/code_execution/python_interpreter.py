@@ -24,6 +24,7 @@ class PythonInterpreterToolSet(ToolSet):
         self.jobs = {}
         self._engine = engine
         self.engine = None
+        self.clientid_to_interpreterid = {}
     
     def _init_engine(self):
         if self.engine is None:
@@ -33,7 +34,12 @@ class PythonInterpreterToolSet(ToolSet):
                 self.engine = self._engine
 
     @tool
-    async def run_code(self, code: str, result_var_name: str | None = None):
+    async def run_code(
+        self,
+        code: str,
+        result_var_name: str | None = None,
+        __client_id__: str | None = None,
+    ):
         """Run Python code in a new interpreter and return the result.
         If you use this function, don't need to use `new_interpreter` and `delete_interpreter`.
 
@@ -45,9 +51,16 @@ class PythonInterpreterToolSet(ToolSet):
         Returns:
             A dictionary with the result, stdout, and stderr.
         """
-        p_id = await self.new_interpreter()
+        if __client_id__ is not None:
+            p_id = self.clientid_to_interpreterid.get(__client_id__)
+            if (p_id is None) or (p_id not in self.interpreters):
+                p_id = await self.new_interpreter()
+                self.clientid_to_interpreterid[__client_id__] = p_id
+        else:
+            p_id = await self.new_interpreter()
         res = await self.run_code_in_interpreter(code, p_id, result_var_name)
-        await self.delete_interpreter(p_id)
+        if __client_id__ is None:
+            await self.delete_interpreter(p_id)
         return res
 
     @tool

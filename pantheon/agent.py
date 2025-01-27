@@ -83,7 +83,7 @@ class Agent:
         for func in self.functions.values():
             func_dict = desc_to_openai_dict(
                 parse_func(func),
-                skip_params=[__CTX_VARS_NAME__],
+                skip_params=[__CTX_VARS_NAME__, "__client_id__"],
             )
             functions.append(func_dict)
 
@@ -92,7 +92,7 @@ class Agent:
                 self._func_to_proxy[name] = proxy.service_info.service_id
                 func_dict = desc_to_openai_dict(
                     desc,
-                    skip_params=[__CTX_VARS_NAME__]
+                    skip_params=[__CTX_VARS_NAME__, "__client_id__"],
                 )
                 functions.append(func_dict)
         return functions
