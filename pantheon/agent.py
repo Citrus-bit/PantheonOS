@@ -174,9 +174,9 @@ class Agent:
             async for chunk in response:
                 if process_chunk:
                     choice = chunk.choices[0]
+                    await run_func(process_chunk, choice.delta.model_dump())
                     if choice.finish_reason == "stop":
                         break
-                    await run_func(process_chunk, choice.delta.model_dump())
             complete_resp = litellm.stream_chunk_builder(response.chunks)
             message = complete_resp.choices[0].message.model_dump()
 
