@@ -1,20 +1,15 @@
 from typing import Callable
 from functools import partial
 import inspect
-import asyncio
 import sys
 from abc import ABC
 from contextlib import asynccontextmanager
 
 from executor.engine import Engine, ProcessJob
 from magique.worker import MagiqueWorker
-from magique.client import connect_to_server, ServiceProxy
 
 from ..utils.log import logger
-
-
-DEFAULT_SERVER_HOST = "magique.spateo.aristoteleo.com"
-DEFAULT_SERVER_PORT = 80
+from .constant import DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT
 
 
 def tool(func: Callable | None = None, **kwargs):
@@ -72,32 +67,6 @@ class ToolSet(ABC):
         logger.info(f"Service Name: {self.worker.service_name}")
         logger.info(f"Service ID: {self.service_id}")
         return await self.worker.run()
-
-
-async def connect_remote(
-        service_name_or_id: str,
-        server_host: str = DEFAULT_SERVER_HOST,
-        server_port: int = DEFAULT_SERVER_PORT,
-        timeout: float = 5.0,
-        time_delta: float = 0.5,
-        ) -> ServiceProxy:
-    server = await connect_to_server(
-        server_host,
-        server_port,
-    )
-    service = None
-
-    async def _retry():
-        nonlocal service
-        while service is None:
-            try:
-                service = await server.get_service(service_name_or_id)
-            except ValueError:
-                await asyncio.sleep(time_delta)
-
-    await asyncio.wait_for(_retry(), timeout)
-
-    return service
 
 
 async def _run_toolset(toolset: ToolSet, log_level: str = "WARNING"):

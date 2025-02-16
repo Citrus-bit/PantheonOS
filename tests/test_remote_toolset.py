@@ -2,7 +2,8 @@ import sys
 import time
 
 from magique.client import MagiqueError
-from pantheon.remote.toolset import tool, ToolSet, connect_remote, run_toolsets
+from pantheon.remote.toolset import tool, ToolSet, run_toolsets
+from pantheon.remote.utils import connect_remote
 from pantheon.tools.web_browse import WebBrowseToolSet
 from pantheon.tools.python.python_interpreter import PythonInterpreterToolSet, PythonInterpreterError
 from pantheon.tools.r import RInterpreterToolSet
