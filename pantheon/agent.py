@@ -6,14 +6,13 @@ from uuid import uuid4
 
 from pydantic import BaseModel, create_model
 from funcdesc import parse_func
+from magique.client import ServiceProxy
 
 from .utils.misc import desc_to_openai_dict, run_func
 from .utils.llm import acompletion_openai, process_messages, process_messages_for_save, acompletion_openai, acompletion_litellm
 from .types import AgentResponse, ResponseDetails, AgentInput, AgentTransfer
-from .remote import (
-    ServiceProxy,
-    connect_remote, DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT
-)
+from .remote.utils import connect_remote
+from .remote.constant import DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT
 
 
 __CTX_VARS_NAME__ = "context_variables"
@@ -387,3 +386,9 @@ class Agent:
         """Load the memory from a file."""
         with open(file_path, "r") as f:
             self.memory = json.load(f)
+
+    async def serve(self, **kwargs):
+        """Serve the agent to a remote server."""
+        from .remote.agent import AgentService
+        service = AgentService(self, **kwargs)
+        return await service.run()
