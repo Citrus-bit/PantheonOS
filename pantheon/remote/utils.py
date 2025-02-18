@@ -8,8 +8,9 @@ async def connect_remote(
         service_name_or_id: str,
         server_host: str = DEFAULT_SERVER_HOST,
         server_port: int = DEFAULT_SERVER_PORT,
-        timeout: float = 5.0,
+        timeout: float = 10.0,
         time_delta: float = 0.5,
+        try_direct_connection: bool = False,
         ) -> ServiceProxy:
     server = await connect_to_server(
         server_host,
@@ -21,7 +22,7 @@ async def connect_remote(
         nonlocal service
         while service is None:
             try:
-                service = await server.get_service(service_name_or_id)
+                service = await server.get_service(service_name_or_id, try_direct_connection=try_direct_connection)
             except ValueError:
                 await asyncio.sleep(time_delta)
 

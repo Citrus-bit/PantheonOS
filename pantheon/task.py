@@ -12,13 +12,6 @@ class Task(BaseModel):
     goal: str
 
 
-class SubTask(BaseModel):
-    name: str
-    goal: str
-    inputs: list[str]
-    outputs: list[str]
-
-
 class TasksSolver:
     def __init__(
             self,
@@ -36,6 +29,35 @@ class TasksSolver:
             message = await self.agent.events_queue.get()
             print_agent_message(self.agent.name, message, self.console)
 
+    async def solve_task_directly(self, task: Task):
+        await self.agent.run(f"Thinking about how to solve the task: {task.name}\nGoal: {task.goal}", tool_use=False)
+        await self.agent.run(f"Solve the task.", tool_use=True)
+
+    async def solve_task(self, task: Task):
+            await self.solve_task_directly(task)
+            await self.reflexion(task)
+
+    async def solve(self, split_task: bool = False):
+        import logging
+        logging.getLogger().setLevel(logging.WARNING)
+
+        print_task = asyncio.create_task(self.process_agent_messages())
+
+        for i, task in enumerate(self.tasks):  # Outer loop: Solve each task
+            self.console.print(f"Solving task [blue]{task.name}[/blue] ({i+1}/{len(self.tasks)}): [yellow]{task.goal}[/yellow]")
+            await self.solve_task(task, split_task)
+
+        print_task.cancel()
+
+
+class SubTask(BaseModel):
+    name: str
+    goal: str
+    inputs: list[str]
+    outputs: list[str]
+
+
+class TasksSolverByDivide(TasksSolver):
     async def solve_sub_tasks(self, sub_tasks: list[SubTask]):
         for i, task in enumerate(sub_tasks):
             self.console.print(f"Solving sub-task [blue]{task.name}[/blue] ({i+1}/{len(sub_tasks)}): [yellow]{task.goal}[/yellow]")
@@ -94,33 +116,13 @@ class TasksSolver:
         sub_tasks = resp.content
         return sub_tasks
 
-    async def solve_task_directly(self, task: Task):
-        await self.agent.run(f"Thinking about how to solve the task: {task.name}\nGoal: {task.goal}", tool_use=False)
-        await self.agent.run(f"Solve the task.", tool_use=True)
-
-    async def solve_task(self, task: Task, split_task: bool = False):
-        if split_task:
-            sub_tasks = await self.break_task(task)
-            self.console.print("Sub-tasks:")
-            for i, sub_task in enumerate(sub_tasks):
-                self.console.print(f"  {i+1}. {sub_task.name}:")
-                self.console.print(f"    Goal: {sub_task.goal}")
-                self.console.print(f"    Inputs: {sub_task.inputs}")
-                self.console.print(f"    Outputs: {sub_task.outputs}")
-            await self.solve_sub_tasks(sub_tasks)
-            await self.judge_task_solved(task)
-        else:
-            await self.solve_task_directly(task)
-            await self.reflexion(task)
-
-    async def solve(self, split_task: bool = False):
-        import logging
-        logging.getLogger().setLevel(logging.WARNING)
-
-        print_task = asyncio.create_task(self.process_agent_messages())
-
-        for i, task in enumerate(self.tasks):  # Outer loop: Solve each task
-            self.console.print(f"Solving task [blue]{task.name}[/blue] ({i+1}/{len(self.tasks)}): [yellow]{task.goal}[/yellow]")
-            await self.solve_task(task, split_task)
-
-        print_task.cancel()
+    async def solve_task(self, task: Task):
+        sub_tasks = await self.break_task(task)
+        self.console.print("Sub-tasks:")
+        for i, sub_task in enumerate(sub_tasks):
+            self.console.print(f"  {i+1}. {sub_task.name}:")
+            self.console.print(f"    Goal: {sub_task.goal}")
+            self.console.print(f"    Inputs: {sub_task.inputs}")
+            self.console.print(f"    Outputs: {sub_task.outputs}")
+        await self.solve_sub_tasks(sub_tasks)
+        await self.reflexion(task)
