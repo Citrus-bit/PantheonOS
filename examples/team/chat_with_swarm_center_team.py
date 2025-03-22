@@ -1,7 +1,7 @@
 import asyncio
 
 from pantheon.agent import Agent
-from pantheon.team import SwarmTeam
+from pantheon.team import SwarmCenterTeam
 from pantheon.repl.team import Repl
 
 
@@ -18,15 +18,13 @@ async def main():
         model="gpt-4o-mini",
     )
 
-    @scifi_fan.tool
-    def transfer_to_romance_fan():
-        return romance_fan
+    triage = Agent(
+        name="Triage",
+        instructions="You are a triage agent.",
+        model="gpt-4o-mini",
+    )
 
-    @romance_fan.tool
-    def transfer_to_scifi_fan():
-        return scifi_fan
-
-    team = SwarmTeam([scifi_fan, romance_fan])
+    team = SwarmCenterTeam(triage, [scifi_fan, romance_fan])
     repl = Repl(team)
     await repl.run()
 

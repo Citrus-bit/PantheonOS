@@ -55,6 +55,32 @@ class SwarmTeam(Team):
                 return resp
 
 
+class SwarmCenterTeam(SwarmTeam):
+    """Swarm team that has a central triage agent that decides which agent to handoff to."""
+    def __init__(self, triage: Agent, agents: list[Agent]):
+        super().__init__([triage])
+        self.triage = triage
+        for agent in agents:
+            self.add_agent(agent)
+
+    def add_agent(self, agent: Agent):
+        agent_func_name = agent.name.replace(" ", "_").lower()
+        func_name = f"transfer_to_{agent_func_name}"
+        exec(f"def {func_name}(): return self.agents['{agent.name}']", locals())
+        transfer_func = eval(func_name)
+        self.triage.tool(transfer_func)
+
+        def transfer_back_to_triage():
+            return self.triage
+
+        agent.tool(transfer_back_to_triage)
+        self.agents[agent.name] = agent
+
+    def remove_agent(self, agent: Agent):
+        del self.agents[agent.name]
+        self.triage.functions.pop(f"transfer_to_{agent.name.replace(' ', '_').lower()}")
+
+
 class SequentialTeam(Team):
     """Team that run agents in sequential order."""
     def __init__(
