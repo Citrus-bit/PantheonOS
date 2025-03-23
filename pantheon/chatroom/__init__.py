@@ -5,14 +5,14 @@ from magique.worker import MagiqueWorker
 
 from ..agent import Agent
 from ..team import Team
-from ..memory import RemoteMemoryManager
+from ..memory import MemoryManager
 
 
 class ChatRoom:
     def __init__(
         self,
         agent: Agent | Team,
-        memory_manager: RemoteMemoryManager,
+        memory_manager: MemoryManager,
         name: str = "Pantheon Chat Room",
         description: str = "Chatroom for Pantheon agents",
         worker_params: dict | None = None,
@@ -35,15 +35,37 @@ class ChatRoom:
 
     def setup_handlers(self):
         self.worker.register(self.new_chat)
+        self.worker.register(self.delete_chat)
+        self.worker.register(self.chat)
 
     async def new_chat(self, name: str | None = None) -> str:
         memory = await self.memory_manager.new_memory(name)
         self.chat_memories[memory.name] = memory
-        return memory.name
+        return {"success": True, "message": "Chat created successfully", "chat_name": memory.name}
 
-    async def chat(self, chat_name: str, message: str):
+    async def delete_chat(self, name: str):
+        try:
+            await self.memory_manager.delete_memory(name)
+            del self.chat_memories[name]
+            return {"success": True, "message": "Chat deleted successfully"}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    async def chat(
+        self,
+        chat_name: str,
+        message: str,
+        process_chunk = None,
+        process_step_message = None,
+    ):
         memory = self.chat_memories[chat_name]
-        await self.agent.run(message, memory=memory)
+        resp = await self.agent.run(
+            message,
+            memory=memory,
+            process_chunk=process_chunk,
+            process_step_message=process_step_message,
+        )
+        return {"success": True, "response": resp.content}
 
     async def run(self, log_level: str = "INFO"):
         from loguru import logger
