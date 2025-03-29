@@ -1,5 +1,4 @@
 import sys
-from pathlib import Path
 
 from magique.worker import MagiqueWorker
 from magique.ai.constant import DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT
@@ -15,9 +14,7 @@ class MemoryManagerService:
             name: str = "pantheon-memory",
             worker_params: dict | None = None,
             ):
-        self.memory_manager = MemoryManager()
-        self.memory_dir = Path(memory_dir)
-        self.memory_manager.load(self.memory_dir)
+        self.memory_manager = MemoryManager(memory_dir)
         _worker_params = {
             "service_name": name,
             "server_host": DEFAULT_SERVER_HOST,
@@ -29,27 +26,47 @@ class MemoryManagerService:
         self.worker = MagiqueWorker(**_worker_params)
         self.setup_handlers()
 
-    async def new_memory(self, name: str | None = None) -> str:
+    async def new_memory(self, name: str | None = None) -> dict:
         memory = self.memory_manager.new_memory(name)
-        return memory.name
+        return {"id": memory.id, "name": memory.name}
 
-    async def get_messages(self, memory_name: str) -> list[dict]:
-        memory = self.memory_manager.get_memory(memory_name)
+    async def get_memory(self, id: str) -> dict:
+        memory = self.memory_manager.get_memory(id)
+        return {"id": memory.id, "name": memory.name}
+
+    async def delete_memory(self, id: str):
+        self.memory_manager.delete_memory(id)
+        await self.save()
+
+    async def get_messages(self, memory_id: str) -> list[dict]:
+        memory = self.memory_manager.get_memory(memory_id)
         return memory.get_messages()
 
-    async def add_messages(self, memory_name: str, messages: list[dict]):
-        memory = self.memory_manager.get_memory(memory_name)
+    async def add_messages(self, memory_id: str, messages: list[dict]):
+        memory = self.memory_manager.get_memory(memory_id)
         memory.add_messages(messages)
-        self.memory_manager.save(self.memory_dir)
+        await self.save()
+
+    async def update_memory_name(self, memory_id: str, name: str):
+        memory = self.memory_manager.get_memory(memory_id)
+        memory.name = name
+        await self.save()
+
+    async def list_memories(self):
+        return self.memory_manager.list_memories()
 
     async def save(self):
-        self.memory_manager.save(self.memory_dir)
+        self.memory_manager.save()
 
     def setup_handlers(self):
         self.worker.register(self.new_memory)
         self.worker.register(self.get_messages)
         self.worker.register(self.add_messages)
         self.worker.register(self.save)
+        self.worker.register(self.list_memories)
+        self.worker.register(self.update_memory_name)
+        self.worker.register(self.get_memory)
+        self.worker.register(self.delete_memory)
 
     async def run(self, log_level: str = "INFO"):
         from loguru import logger
@@ -62,15 +79,24 @@ class MemoryManagerService:
 
 
 class RemoteMemory:
-    def __init__(self, service, name: str):
+    def __init__(
+            self,
+            service,
+            id: str,
+            name: str,
+            ):
         self.service = service
+        self.id = id
         self.name = name
 
     async def get_messages(self) -> list[dict]:
-        return await self.service.invoke("get_messages", {"memory_name": self.name})
+        return await self.service.invoke("get_messages", {"memory_id": self.id})
 
     async def add_messages(self, messages: list[dict]):
-        await self.service.invoke("add_messages", {"memory_name": self.name, "messages": messages})
+        await self.service.invoke(
+            "add_messages",
+            {"memory_id": self.id, "messages": messages},
+        )
 
 
 class RemoteMemoryManager:
@@ -95,15 +121,45 @@ class RemoteMemoryManager:
 
     async def new_memory(self, name: str | None = None) -> RemoteMemory:
         await self.connect()
-        memory_name = await self.service.invoke("new_memory", {"name": name})
-        return RemoteMemory(self.service, memory_name)
+        assert self.service is not None
+        memory_info = await self.service.invoke("new_memory", {"name": name})
+        return RemoteMemory(self.service, memory_info["id"], memory_info["name"])
+
+    async def get_memory(self, id: str) -> RemoteMemory:
+        await self.connect()
+        assert self.service is not None
+        memory_info = await self.service.invoke("get_memory", {"id": id})
+        return RemoteMemory(self.service, memory_info["id"], memory_info["name"])
+
+    async def delete_memory(self, id: str):
+        await self.connect()
+        assert self.service is not None
+        await self.service.invoke("delete_memory", {"id": id})
+
+    async def list_memories(self):
+        await self.connect()
+        assert self.service is not None
+        return await self.service.invoke("list_memories", {})
 
     async def save(self):
         await self.connect()
+        assert self.service is not None
         await self.service.invoke("save", {})
 
+    async def update_memory_name(self, memory_id: str, name: str):
+        await self.connect()
+        assert self.service is not None
+        await self.service.invoke(
+            "update_memory_name",
+            {"memory_id": memory_id, "name": name},
+        )
 
-async def start_memory_service(memory_dir: str, name: str = "pantheon-memory", log_level: str = "INFO"):
+
+async def start_memory_service(
+        memory_dir: str,
+        name: str = "pantheon-memory",
+        log_level: str = "INFO",
+        ):
     service = MemoryManagerService(memory_dir, name)
     await service.run(log_level)
 

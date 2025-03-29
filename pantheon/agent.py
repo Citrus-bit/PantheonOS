@@ -14,7 +14,7 @@ from .utils.misc import desc_to_openai_dict, run_func
 from .utils.llm import (
     acompletion_openai,
     process_messages,
-    acompletion_openai,
+    remove_hidden_fields,
     acompletion_litellm,
 )
 from .utils.vision import vision_to_openai
@@ -150,8 +150,8 @@ class Agent:
                     "role": "tool",
                     "tool_call_id": call["id"],
                     "tool_name": func_name,
-                    "content": repr(result),
                     "raw_content": result,
+                    "content": repr(remove_hidden_fields(result)),
                 })
         return messages
 
@@ -313,7 +313,6 @@ class Agent:
                         "Message must be a string, BaseModel or dict"
                     new_messages.append(m)
             messages = new_messages
-
         return messages
 
     async def run(
@@ -323,6 +322,7 @@ class Agent:
             context_variables: dict | None = None,
             process_chunk: Callable | None = None,
             process_step_message: Callable | None = None,
+            memory: Memory | None = None,
             use_memory: bool | None = None,
             update_memory: bool = True,
             tool_timeout: int | None = None,
@@ -337,6 +337,7 @@ class Agent:
             context_variables: The context variables to use.
             process_chunk: The function to process the chunk.
             process_step_message: The function to process the step message.
+            memory: The memory to use.
             use_memory: Whether to use short term memory.
             update_memory: Whether to update the short term memory.
             tool_timeout: The timeout for the tool.
@@ -346,8 +347,9 @@ class Agent:
         if use_memory is not None:
             _use_m = use_memory
         new_input_messages = self.input_to_openai_messages(msg)
+        memory = memory or self.memory
         if _use_m:
-            old_messages = await run_func(self.memory.get_messages)
+            old_messages = await run_func(memory.get_messages)
             messages = old_messages + new_input_messages
         else:
             messages = new_input_messages
@@ -376,8 +378,8 @@ class Agent:
             else:
                 content = final_msg.get("content")
             if self.use_memory and update_memory:
-                await run_func(self.memory.add_messages, new_input_messages)
-                await run_func(self.memory.add_messages, details.messages)
+                await run_func(memory.add_messages, new_input_messages)
+                await run_func(memory.add_messages, details.messages)
             return AgentResponse(
                 agent_name=self.name,
                 content=content,

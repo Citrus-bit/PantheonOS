@@ -113,8 +113,6 @@ def convert_tool_message(messages: list[dict]) -> list[dict]:
 def process_messages(messages: list[dict], model: str) -> list[dict]:
     messages = deepcopy(messages)
     messages = remove_parsed(messages)
-    if model.startswith("deepseek/"):
-        messages = convert_tool_message(messages)
     return messages
 
 
@@ -128,3 +126,13 @@ async def openai_embedding(texts: list[str], model: str = "text-embedding-3-larg
     client = openai.AsyncOpenAI()
     resp = await client.embeddings.create(input=texts, model=model)
     return [d.embedding for d in resp.data]
+
+
+def remove_hidden_fields(content: dict) -> dict:
+    content = deepcopy(content)
+    if "hidden_to_model" in content:
+        hidden_fields = content.pop("hidden_to_model")
+        for field in hidden_fields:
+            if field in content:
+                content.pop(field)
+    return content
