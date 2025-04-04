@@ -35,7 +35,7 @@ class Agent:
         response_format: Any | None = None,
         use_memory: bool = True,
         memory: Memory | None = None,
-        tool_timeout: int | None = 10 * 60,
+        tool_timeout: int = 10 * 60,
         force_litellm: bool = False,
     ):
         self.id = uuid4()

@@ -13,7 +13,7 @@ async def acompletion_openai(
         response_format: Any | None = None,
         process_chunk: Callable | None = None,
         retry_times: int = 3,
-        ) -> dict:
+        ):
     from openai import AsyncOpenAI, NOT_GIVEN, APIConnectionError
 
     client = AsyncOpenAI()
@@ -61,7 +61,7 @@ async def acompletion_litellm(
         tools: list[dict] | None = None,
         response_format: Any | None = None,
         process_chunk: Callable | None = None,
-        ) -> dict:
+        ):
     litellm = import_litellm()
     response = await litellm.acompletion(
         model=model,

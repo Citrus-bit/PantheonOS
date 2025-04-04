@@ -4,12 +4,82 @@ import base64
 
 from magique.ai.constant import DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT
 from magique.worker import MagiqueWorker
-from magique.ai.toolset import run_toolsets, ToolSet
+from magique.ai.toolset import run_toolsets, ToolSet, tool
 from magique.ai.tools.python import PythonInterpreterToolSet
 from magique.ai.tools.file_manager import FileManagerToolSet
 from magique.ai.tools.file_transfer import FileTransferToolSet
 from magique.ai.tools.web_browse import WebBrowseToolSet
 from magique.ai import connect_remote
+
+
+class PythonInterpreterToolSetPatchMatplotlib(PythonInterpreterToolSet):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.init_code = """import matplotlib; matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import io
+import base64
+
+GLOBAL_PLOT_BASE64 = None
+
+original_show = plt.show
+
+def __custom_plt_show(*args, **kwargs):
+    global GLOBAL_PLOT_BASE64
+    fig = plt.gcf()
+    if not fig.get_axes():
+        print("No active figure to save.")
+        plt.close(fig)
+        return
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    image_bytes = buf.read()
+    GLOBAL_PLOT_BASE64 = base64.b64encode(image_bytes).decode('utf-8')
+    buf.close()
+    plt.close(fig)
+    print("Plot saved to GLOBAL_PLOT_BASE64 instead of showing.")
+
+__plt_show = plt.show
+plt.show = __custom_plt_show
+"""
+
+    @tool
+    async def run_code_in_interpreter(
+            self,
+            code: str,
+            interpreter_id: str,
+            result_var_name: str | None = None,
+            ) -> dict:
+        """Run code in an interpreter.
+
+        Args:
+            code: The code to run.
+            interpreter_id: The id of the interpreter to run the code in.
+            result_var_name: The name of the variable you want to get the result from.
+                If not needed, set to None. Default is None.
+
+        Returns:
+            A dictionary with the result, stdout, and stderr.
+        """
+        code = "GLOBAL_PLOT_BASE64 = None\n" + code
+        res = await super().run_code_in_interpreter(
+            code,
+            interpreter_id,
+            result_var_name,
+        )
+        res2 = await super().run_code_in_interpreter(
+            "None",
+            interpreter_id,
+            "GLOBAL_PLOT_BASE64",
+        )
+        base64_img = res2["result"]
+        if base64_img is not None:
+            base64_uri = f"data:image/png;base64,{base64_img}"
+            res["plt_show_base64_uri"] = base64_uri
+            res["hidden_to_model"] = ["plt_show_base64_uri"]
+        return res
 
 
 class Endpoint:
@@ -111,7 +181,7 @@ class Endpoint:
         return None
 
     def create_services(self):
-        toolset = PythonInterpreterToolSet(
+        toolset = PythonInterpreterToolSetPatchMatplotlib(
             name="python_interpreter",
             workdir=str(self.workspace_path),
             init_code="import matplotlib; matplotlib.use('Agg')"
