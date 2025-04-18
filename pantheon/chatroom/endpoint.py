@@ -137,7 +137,10 @@ class Endpoint:
         path = self.path / file_path
         if not path.exists():
             return {"success": False, "error": "File does not exist"}
-        path.unlink()
+        if path.is_dir():
+            path.rmdir()
+        else:
+            path.unlink()
         return {"success": True}
 
     async def open_file_for_write(self, file_path: str):
