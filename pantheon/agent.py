@@ -271,6 +271,8 @@ class Agent:
                     parsed = Response.model_validate_json(content)
                     message["parsed"] = parsed.result
 
+            message["agent_name"] = self.name
+
             history.append(message)
             self.events_queue.put_nowait(message)
             if process_step_message:

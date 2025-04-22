@@ -65,6 +65,8 @@ class ChatRoom:
         self.worker.register(self.update_chat_name)
         self.worker.register(self.get_endpoint)
         self.worker.register(self.get_agents)
+        self.worker.register(self.set_active_agent)
+        self.worker.register(self.get_active_agent)
 
     async def get_endpoint(self) -> dict:
         s = await connect_remote(self.endpoint_service_id)
@@ -91,7 +93,20 @@ class ChatRoom:
             }
         return {
             "success": True,
-            "agents": [get_agent_info(a) for a in self.team.agents],
+            "agents": [get_agent_info(a) for a in self.team.agents.values()],
+        }
+
+    async def set_active_agent(self, agent_name: str):
+        agent = next((a for a in self.team.agents.values() if a.name == agent_name), None)
+        if agent is None:
+            return {"success": False, "message": "Agent not found"}
+        self.team.active_agent = agent
+        return {"success": True, "message": "Agent set as active"}
+
+    async def get_active_agent(self) -> dict:
+        return {
+            "success": True,
+            "agent": self.team.active_agent.name,
         }
 
     async def create_chat(self, chat_name: str | None = None) -> dict:
@@ -175,4 +190,5 @@ class ChatRoom:
         logger.info(f"Remote Server: {self.worker.server_uri}")
         logger.info(f"Service Name: {self.worker.service_name}")
         logger.info(f"Service ID: {self.worker.service_id}")
+        await self.team.async_setup()
         return await self.worker.run()

@@ -12,7 +12,7 @@ from ..memory import MemoryManager
 
 async def default_agents_factory(endpoint) -> dict:
     assistant_agent = Agent(
-        name="Pantheon",
+        name="Assistant",
         instructions="You are a helpful assistant that can answer questions and help with tasks.",
         model="gpt-4.1",
         icon="🤖",
@@ -57,7 +57,7 @@ async def start_services(
     w_path.mkdir(parents=True, exist_ok=True)
     endpoint = Endpoint(workspace_path=workspace_path)
     asyncio.create_task(endpoint.run(log_level=log_level))
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(1.0)
 
     agents = await agents_factory(endpoint)
 
