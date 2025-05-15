@@ -57,10 +57,14 @@ async def start_services(
         from magique.ai.endpoint import Endpoint
         w_path = Path(workspace_path)
         w_path.mkdir(parents=True, exist_ok=True)
-        endpoint = Endpoint(workspace_path=workspace_path)
-        asyncio.create_task(endpoint.run(log_level=log_level))
+        endpoint = Endpoint(
+            workspace_path=workspace_path,
+            config={"log_level": log_level},
+        )
+        asyncio.create_task(endpoint.run())
         endpoint_service_id = endpoint.worker.service_id
 
+    await asyncio.sleep(2)
     endpoint = await connect_remote(endpoint_service_id)
 
     agents = await agents_factory(endpoint)

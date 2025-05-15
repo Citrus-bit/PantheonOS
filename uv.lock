@@ -1439,7 +1439,7 @@ wheels = [
 
 [[package]]
 name = "magique"
-version = "0.3.3"
+version = "0.3.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "authlib" },
@@ -1458,12 +1458,12 @@ dependencies = [
     { name = "websockets" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d5/c4/5c28e085f9f0dc3ae5c97256e96883fb893f1e062db865065196d5459a29/magique-0.3.3-py3-none-any.whl", hash = "sha256:7d395c528907bb46502f95c3de04ca828c8d487806451f1ecbc3e2a979ab87d4", size = 17886 },
+    { url = "https://files.pythonhosted.org/packages/1c/5b/b7098bbdb59f1e66c4a4ec97d151cb5a4d4f2331fed839c943be22f4996b/magique-0.3.4-py3-none-any.whl", hash = "sha256:e6ab98d0e2688328499a970731dbab6091f648ce11c837311627442628682d44", size = 17957 },
 ]
 
 [[package]]
 name = "magique-ai"
-version = "0.2.6"
+version = "0.2.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "crawl4ai" },
@@ -1479,7 +1479,7 @@ dependencies = [
     { name = "pymupdf" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/33/e6/4040f3d06a29641f3766a4f77eff7b5342e4acb43905bdf9c35a58682557/magique_ai-0.2.6-py3-none-any.whl", hash = "sha256:9ebc0fe987d8995ab322eb4e97fb457f3e8a14b958dd6a5aae3f6998f0255342", size = 34630 },
+    { url = "https://files.pythonhosted.org/packages/a8/48/8ebbe3e17e006e2f9f2f86dc5c0c9c2e96628d868f91a1bbcce9690b2322/magique_ai-0.2.7-py3-none-any.whl", hash = "sha256:8ccb913df35f7a364ff6de4ca65ebb56ba59ac660f1f55c44cfffad0fd97d714", size = 35620 },
 ]
 
 [[package]]
@@ -1903,7 +1903,7 @@ requires-dist = [
     { name = "litellm", specifier = ">=1.56.4" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "magique", specifier = ">=0.3.3" },
-    { name = "magique-ai", specifier = ">=0.2.6" },
+    { name = "magique-ai", specifier = ">=0.2.7" },
     { name = "openai", specifier = ">=1.58.1" },
     { name = "pillow", specifier = ">=10.4.0" },
     { name = "pymupdf" },
