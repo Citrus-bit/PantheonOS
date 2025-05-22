@@ -33,6 +33,7 @@ class ChatRoom:
         description: str = "Chatroom for Pantheon agents",
         worker_params: dict | None = None,
         server_url: str = DEFAULT_SERVER_URL,
+        endpoint_connect_params: dict | None = None,
     ):
         if isinstance(agents, Agent | RemoteAgent):
             agents = [agents]
@@ -57,6 +58,7 @@ class ChatRoom:
             _worker_params.update(worker_params)
         self.worker = MagiqueWorker(**_worker_params)
         self.setup_handlers()
+        self.endpoint_connect_params = endpoint_connect_params or {}
 
     def setup_handlers(self):
         self.worker.register(self.create_chat)
@@ -71,7 +73,11 @@ class ChatRoom:
         self.worker.register(self.get_active_agent)
 
     async def get_endpoint(self) -> dict:
-        s = await connect_remote(self.endpoint_service_id, self.server_url)
+        s = await connect_remote(
+            self.endpoint_service_id,
+            self.server_url,
+            **self.endpoint_connect_params,
+        )
         info = await s.fetch_service_info()
         return {
             "success": True,
@@ -209,18 +215,32 @@ class ChatRoom:
                 new_name = await self.team.run(prompt, use_memory=False, update_memory=False)
                 memory.name = new_name.content
 
+            if process_chunk is not None:
+                async def _process_chunk(chunk: dict):
+                    chunk["chat_id"] = chat_id
+                    await run_func(process_chunk, chunk)
+            else:
+                _process_chunk = None
+
+            if process_step_message is not None:
+                async def _process_step_message(step_message: dict):
+                    step_message["chat_id"] = chat_id
+                    await run_func(process_step_message, step_message)
+            else:
+                _process_step_message = None
+
             resp = await self.team.run(
                 message,
                 memory=memory,
-                process_chunk=process_chunk,
-                process_step_message=process_step_message,
+                process_chunk=_process_chunk,
+                process_step_message=_process_step_message,
             )
-            return {"success": True, "response": resp.content}
+            return {"success": True, "response": resp.content, "chat_id": chat_id}
         except Exception as e:
             logger.error(f"Error chatting: {e}")
             import traceback
             traceback.print_exc()
-            return {"success": False, "message": str(e)}
+            return {"success": False, "message": str(e), "chat_id": chat_id}
         finally:
             memory.extra_data["running"] = False
             memory.extra_data["last_activity_date"] = datetime.now().isoformat()

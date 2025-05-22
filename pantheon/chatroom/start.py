@@ -52,6 +52,10 @@ async def start_services(
     workspace_path: str = "./.pantheon-chatroom-workspace",
     agents_factory: Callable[[], Awaitable[list[Agent | Team]]] = default_agents_factory,
     log_level: str = "INFO",
+    endpoint_wait_time: int = 5,
+    worker_params: dict | None = None,
+    worker_params_endpoint: dict | None = None,
+    endpoint_connect_params: dict | None = None,
 ):
     if endpoint_service_id is None:
         from magique.ai.endpoint import Endpoint
@@ -60,12 +64,13 @@ async def start_services(
         endpoint = Endpoint(
             workspace_path=workspace_path,
             config={"log_level": log_level},
+            worker_params=worker_params_endpoint,
         )
         asyncio.create_task(endpoint.run())
         endpoint_service_id = endpoint.worker.service_id
+        await asyncio.sleep(endpoint_wait_time)
 
-    await asyncio.sleep(2)
-    endpoint = await connect_remote(endpoint_service_id)
+    endpoint = await connect_remote(endpoint_service_id, **endpoint_connect_params)
 
     agents = await agents_factory(endpoint)
     memory_manager = MemoryManager(memory_path)
@@ -76,5 +81,7 @@ async def start_services(
         endpoint_service_id=endpoint_service_id,
         memory_manager=memory_manager,
         name=service_name,
+        worker_params=worker_params,
+        endpoint_connect_params=endpoint_connect_params,
     )
     await chat_room.run(log_level=log_level)

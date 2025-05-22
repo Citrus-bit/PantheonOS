@@ -74,12 +74,13 @@ Don't need to confirm with user at most time, just do the task.
         "other": [single_cell_expert],
     }
 
-async def main(endpoint_service_id: str):
+async def main(endpoint_service_id: str, **kwargs):
     await start_services(
         service_name="pantheon-chatroom",
         memory_path="./.pantheon-chatroom",
         endpoint_service_id=endpoint_service_id,
         agents_factory=agents_factory,
+        **kwargs,
     )
 
 
