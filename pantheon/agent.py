@@ -103,10 +103,14 @@ class Agent:
             **kwargs,
             ):
         """Add a remote toolset to the agent."""
+        _params = {
+            "try_direct_connection": False
+        }
+        _params.update(kwargs)
         s = await connect_remote(
             service_id_or_name,
             server_url,
-            **kwargs,
+            **_params,
         )
         self.toolset_proxies[s.service_info.service_id] = s
         return self

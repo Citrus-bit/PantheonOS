@@ -39,13 +39,16 @@ Basicly, given a single-cell RNA-seq dataset in h5ad / 10x format or other forma
 you should firstly output your plan and the code.
 Then, you should execute the code to read the data,
 then preprocess the data, and cluster the data, and finally visualize the data.
+When you visualize the data, you should produce the publication level high-quality figures.
 
 You can display the figures with it's path in markdown format.
 
 After you ploted some figure, you should using view_image function to check the figure,
 then according to the figure decide what you should do next.
 
-Don't need to confirm with user at most time, just do the task.
+After you finished the task, you should display the final result for user.
+
+NOTE: Don't need to confirm with user at most time, just do the task.
 """
 
     single_cell_expert = Agent(
