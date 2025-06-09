@@ -5,7 +5,7 @@ from typing import Callable
 from magique.worker import MagiqueWorker
 from magique.client import PyFunction
 from magique.ai.utils.remote import connect_remote
-from magique.ai.constant import DEFAULT_SERVER_URL
+from magique.ai.constant import SERVER_URLS
 
 from ..agent import Agent, AgentInput
 
@@ -19,7 +19,7 @@ class AgentService:
         self.agent = agent
         _worker_params = {
             "service_name": "remote_agent_" + self.agent.name,
-            "server_url": DEFAULT_SERVER_URL,
+            "server_url": SERVER_URLS,
             "need_auth": False,
         }
         if worker_params is not None:
@@ -72,11 +72,17 @@ class RemoteAgent:
     def __init__(
             self,
             service_id_or_name: str,
-            server_url: str = DEFAULT_SERVER_URL,
+            server_url: str | list[str] | None = None,
             **remote_kwargs,
             ):
         self.service_id_or_name = service_id_or_name
-        self.server_url = server_url
+        if isinstance(server_url, str):
+            server_urls = [server_url]
+        elif server_url is None:
+            server_urls = SERVER_URLS
+        else:
+            server_urls = server_url
+        self.server_urls = server_urls
         self.remote_kwargs = remote_kwargs
         self.name = None
         self.instructions = None
@@ -86,7 +92,7 @@ class RemoteAgent:
     async def _connect(self):
         return await connect_remote(
             self.service_id_or_name,
-            self.server_url,
+            self.server_urls,
             **self.remote_kwargs,
         )
 

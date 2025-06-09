@@ -6,7 +6,7 @@ from typing import Callable
 
 from magique.worker import MagiqueWorker
 from magique.ai import connect_remote
-from magique.ai.constant import DEFAULT_SERVER_URL
+from magique.ai.constant import SERVER_URLS
 
 from ..agent import Agent
 from ..team import SwarmCenterTeam
@@ -118,7 +118,7 @@ class ChatRoom:
         name: str = "pantheon-chatroom",
         description: str = "Chatroom for Pantheon agents",
         worker_params: dict | None = None,
-        server_url: str = DEFAULT_SERVER_URL,
+        server_url: str | list[str] | None = None,
         endpoint_connect_params: dict | None = None,
     ):
         if isinstance(agents, Agent | RemoteAgent):
@@ -134,10 +134,16 @@ class ChatRoom:
         self.memory_manager = memory_manager
         self.name = name
         self.description = description
-        self.server_url = server_url
+        if isinstance(server_url, str):
+            server_urls = [server_url]
+        elif server_url is None:
+            server_urls = SERVER_URLS
+        else:
+            server_urls = server_url
+        self.server_urls = server_urls
         _worker_params = {
             "service_name": name,
-            "server_url": server_url,
+            "server_url": server_urls,
             "need_auth": False,
         }
         if worker_params is not None:
@@ -163,7 +169,7 @@ class ChatRoom:
     async def get_endpoint(self) -> dict:
         s = await connect_remote(
             self.endpoint_service_id,
-            self.server_url,
+            self.server_urls,
             **self.endpoint_connect_params,
         )
         info = await s.fetch_service_info()
@@ -257,10 +263,19 @@ class ChatRoom:
             logger.error(f"Error listing chats: {e}")
             return {"success": False, "message": str(e)}
 
-    async def get_chat_messages(self, chat_id: str):
+    async def get_chat_messages(self, chat_id: str, filter_out_images: bool = False):
         try:
             memory = await run_func(self.memory_manager.get_memory, chat_id)
             messages = await run_func(memory.get_messages)
+            if filter_out_images:
+                new_messages = []
+                for message in messages:
+                    if "raw_content" in message:
+                        if isinstance(message["raw_content"], dict):
+                            if "base64_uri" in message["raw_content"]:
+                                del message["raw_content"]["base64_uri"]
+                    new_messages.append(message)
+                messages = new_messages
             return {"success": True, "messages": messages}
         except Exception as e:
             logger.error(f"Error getting chat messages: {e}")
@@ -332,7 +347,7 @@ class ChatRoom:
         from loguru import logger
         logger.remove()
         logger.add(sys.stderr, level=log_level)
-        logger.info(f"Remote Server: {self.worker.server_url}")
+        logger.info(f"Remote Servers: {self.worker.servers}")
         logger.info(f"Service Name: {self.worker.service_name}")
         logger.info(f"Service ID: {self.worker.service_id}")
         await self.team.async_setup()

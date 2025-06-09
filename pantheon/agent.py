@@ -8,7 +8,6 @@ from pydantic import BaseModel, create_model
 from funcdesc import parse_func, Description, Value
 from magique.client import ServiceProxy
 from magique.worker import ReverseCallable
-from magique.ai.constant import DEFAULT_SERVER_URL
 from magique.ai.utils.remote import connect_remote
 
 from .utils.misc import desc_to_openai_dict, run_func
@@ -65,6 +64,7 @@ class Agent:
         memory: Memory | None = None,
         tool_timeout: int = 10 * 60,
         force_litellm: bool = False,
+        max_tool_content_length: int | None = 100000,
     ):
         self.id = uuid4()
         self.name = name
@@ -87,9 +87,8 @@ class Agent:
         self.tool_timeout = tool_timeout
         self.events_queue: asyncio.Queue = asyncio.Queue()
         self.force_litellm = force_litellm
-        # Restrict message targets in meeting
-        self.message_to: None | list[str] = None
         self.icon = icon
+        self.max_tool_content_length = max_tool_content_length
 
     def tool(self, func: Callable):
         """
@@ -107,7 +106,7 @@ class Agent:
     async def remote_toolset(
             self,
             service_id_or_name: str,
-            server_url: str = DEFAULT_SERVER_URL,
+            server_url: str | list[str] | None = None,
             **kwargs,
             ):
         """Add a remote toolset to the agent."""
@@ -221,6 +220,8 @@ class Agent:
                 else:
                     processed_result = result
                 content = repr(processed_result)
+                if self.max_tool_content_length is not None:
+                    content = content[:self.max_tool_content_length]
                 messages.append({
                     "role": "tool",
                     "tool_call_id": call["id"],
@@ -342,7 +343,7 @@ class Agent:
             if process_step_message:
                 await run_func(process_step_message, message)
 
-            if not message["tool_calls"]:
+            if not message.get("tool_calls"):
                 break
 
             tool_messages = await self.handle_tool_calls(

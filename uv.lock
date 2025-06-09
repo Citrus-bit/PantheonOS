@@ -1439,7 +1439,7 @@ wheels = [
 
 [[package]]
 name = "magique"
-version = "0.3.6"
+version = "0.3.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "authlib" },
@@ -1458,15 +1458,16 @@ dependencies = [
     { name = "websockets" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ae/89/2516235f0bed2c5ac3c7ae556152fc66e8c8cb1be8576bd949fc545455ed/magique-0.3.6-py3-none-any.whl", hash = "sha256:4e3ef517c9d68bb89221b9a94e2839f997a84c261e5bc680f6b0cb3fe123a5fe", size = 18478 },
+    { url = "https://files.pythonhosted.org/packages/37/7c/78465e494bf1b89798141819ef43025c7b1cfbc70e3d27ee972afd0eeca0/magique-0.3.9-py3-none-any.whl", hash = "sha256:aec0b9e356554263f27531e14d4a11a2729844bb4be682bce22d51f5fe0411f0", size = 19106 },
 ]
 
 [[package]]
 name = "magique-ai"
-version = "0.2.7"
+version = "0.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "crawl4ai" },
+    { name = "diskcache" },
     { name = "duckduckgo-search" },
     { name = "executor-engine" },
     { name = "fire" },
@@ -1479,7 +1480,7 @@ dependencies = [
     { name = "pymupdf" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a8/48/8ebbe3e17e006e2f9f2f86dc5c0c9c2e96628d868f91a1bbcce9690b2322/magique_ai-0.2.7-py3-none-any.whl", hash = "sha256:8ccb913df35f7a364ff6de4ca65ebb56ba59ac660f1f55c44cfffad0fd97d714", size = 35620 },
+    { url = "https://files.pythonhosted.org/packages/d2/ad/06eed04a868f180b4fa5bc53076c08788c8bacac0dc88b49ae81149bd35b/magique_ai-0.3.1-py3-none-any.whl", hash = "sha256:b6b61ee1d6823ef5d689ec4f09dbc6d66ef3547f690df1c4968567b587841dcb", size = 40120 },
 ]
 
 [[package]]
@@ -1902,8 +1903,8 @@ requires-dist = [
     { name = "funcdesc", specifier = ">=0.1.8" },
     { name = "litellm", specifier = ">=1.56.4" },
     { name = "loguru", specifier = ">=0.7.3" },
-    { name = "magique", specifier = ">=0.3.6" },
-    { name = "magique-ai", specifier = ">=0.2.7" },
+    { name = "magique", specifier = ">=0.3.9" },
+    { name = "magique-ai", specifier = ">=0.3.1" },
     { name = "openai", specifier = ">=1.58.1" },
     { name = "pillow", specifier = ">=10.4.0" },
     { name = "pymupdf" },

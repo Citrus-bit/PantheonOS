@@ -1,7 +1,7 @@
 import sys
 
 from magique.worker import MagiqueWorker
-from magique.ai.constant import DEFAULT_SERVER_URL
+from magique.ai.constant import SERVER_URLS
 from magique.ai.utils.remote import connect_remote
 
 from ..memory import MemoryManager
@@ -13,10 +13,16 @@ class MemoryManagerService:
             memory_dir: str,
             name: str = "pantheon-memory",
             worker_params: dict | None = None,
-            server_url: str = DEFAULT_SERVER_URL,
+            server_url: str | list[str] | None = None,
             ):
         self.memory_manager = MemoryManager(memory_dir)
-        self.server_url = server_url
+        if isinstance(server_url, str):
+            server_urls = [server_url]
+        elif server_url is None:
+            server_urls = SERVER_URLS
+        else:
+            server_urls = server_url
+        self.server_urls = server_urls
         _worker_params = {
             "service_name": name,
             "server_url": server_url,
@@ -104,17 +110,23 @@ class RemoteMemoryManager:
     def __init__(
             self,
             service_id_or_name: str,
-            server_url: str = DEFAULT_SERVER_URL,
+            server_url: str | list[str] | None = None,
             ):
         self.service_id_or_name = service_id_or_name
-        self.server_url = server_url
+        if isinstance(server_url, str):
+            server_urls = [server_url]
+        elif server_url is None:
+            server_urls = SERVER_URLS
+        else:
+            server_urls = server_url
+        self.server_urls = server_urls
         self.service = None
 
     async def connect(self):
         if self.service is None:
             self.service = await connect_remote(
                 self.service_id_or_name,
-                self.server_url,
+                self.server_urls,
                 )
 
     async def new_memory(self, name: str | None = None) -> RemoteMemory:
