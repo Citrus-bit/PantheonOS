@@ -246,6 +246,8 @@ class Agent:
         if "/" in model:
             provider = model.split("/")[0]
             model_name = model.split("/")[1]
+        else:
+            model_name = model
         litellm_mode = (provider != "openai") or force_litellm
 
         tools = None
