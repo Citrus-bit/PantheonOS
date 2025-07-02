@@ -1,5 +1,6 @@
 import copy
 import json
+import time
 import asyncio
 from typing import Callable, Any
 from uuid import uuid4
@@ -165,7 +166,9 @@ class Agent:
             self,
             tool_calls: list,
             context_variables: dict,
-            timeout: int,
+            timeout: float,
+            time_delta: float = 0.5,
+            check_stop: Callable | None = None,
             client_id: str | None = None,
             ) -> list[dict]:
         from .remote.agent import RemoteAgent
@@ -183,10 +186,7 @@ class Agent:
                         var_names = func.__code__.co_varnames
                     if __CTX_VARS_NAME__ in var_names:
                         params[__CTX_VARS_NAME__] = context_variables
-                    result = await asyncio.wait_for(
-                        run_func(func, **params),
-                        timeout=timeout,
-                    )
+                    _func = func
                 else:
                     # remote toolset
                     assert func_name in self._func_to_proxy, \
@@ -203,10 +203,25 @@ class Agent:
                         params["__agent_run__"] = agent_run
                     if ("__client_id__" in function_args) and (client_id is not None):
                         params["__client_id__"] = client_id
-                    result = await asyncio.wait_for(
-                        proxy.invoke(func_name, parameters=params),
-                        timeout=timeout,
-                    )
+                    async def _func(**params):
+                        return await proxy.invoke(func_name, parameters=params)
+                start_time = time.time()
+                task = asyncio.create_task(run_func(_func, **params))
+                while True:
+                    if task.done():
+                        result = task.result()
+                        break
+                    else:
+                        logger.info("Check stop when tool calling")
+                        if timeout is not None:
+                            if time.time() - start_time > timeout:
+                                raise asyncio.TimeoutError()
+                        if check_stop is not None:
+                            if check_stop(time.time() - start_time):
+                                raise StopRunning()
+                        await asyncio.sleep(time_delta)
+            except StopRunning:
+                raise
             except Exception as e:
                 result = repr(e)
 
@@ -292,6 +307,7 @@ class Agent:
         messages: list[dict],
         process_chunk: Callable | None = None,
         process_step_message: Callable | None = None,
+        check_stop: Callable | None = None,
         max_turns: int | float = float("inf"),
         context_variables: dict | None = None,
         response_format: Any | None = None,
@@ -316,6 +332,15 @@ class Agent:
         else:
             Response = None
 
+        if check_stop is not None:
+            async def _process_chunk(chunk: dict):
+                if process_chunk is not None:
+                    await run_func(process_chunk, chunk)
+                if check_stop():
+                    raise StopRunning()
+        else:
+            _process_chunk = process_chunk
+
         while len(history) - init_len < max_turns:
             message = {}
 
@@ -329,10 +354,12 @@ class Agent:
                         model=model,
                         tool_use=tool_use,
                         response_format=Response,
-                        process_chunk=process_chunk,
+                        process_chunk=_process_chunk,
                         allow_transfer=allow_transfer,
                     )
                     break
+                except StopRunning:
+                    raise
                 except Exception as e:
                     logger.error(f"Error completing with model {model}: {e}")
                     error_count += 1
@@ -358,6 +385,7 @@ class Agent:
                 message["tool_calls"],
                 context_variables=context_variables,
                 timeout=tool_timeout,
+                check_stop=check_stop,
                 client_id=client_id,
             )
             history.extend(tool_messages)
@@ -426,6 +454,7 @@ class Agent:
             context_variables: dict | None = None,
             process_chunk: Callable | None = None,
             process_step_message: Callable | None = None,
+            check_stop: Callable | None = None,
             memory: Memory | None = None,
             use_memory: bool | None = None,
             update_memory: bool = True,
@@ -442,6 +471,7 @@ class Agent:
             context_variables: The context variables to use.
             process_chunk: The function to process the chunk.
             process_step_message: The function to process the step message.
+            check_stop: The function to check if the agent should stop.
             memory: The memory to use.
             use_memory: Whether to use short term memory.
             update_memory: Whether to update the short term memory.
@@ -454,6 +484,7 @@ class Agent:
         new_input_messages = self.input_to_openai_messages(msg)
         memory = memory or self.memory
         if _use_m:
+            memory.cleanup()
             old_messages = memory.get_messages()
             messages = old_messages + new_input_messages
         else:
@@ -484,14 +515,16 @@ class Agent:
                 context_variables=context_variables,
                 process_chunk=process_chunk,
                 process_step_message=_process_step_message,
+                check_stop=check_stop,
                 tool_timeout=tool_timeout,
                 model=model,
                 allow_transfer=allow_transfer,
                 client_id=memory.id,
             )
         except StopRunning:
+            logger.info("StopRunning")
             if update_memory:
-                memory.cleanup_after_interrupt()
+                memory.cleanup()
             return AgentResponse(
                 agent_name=self.name,
                 content="",

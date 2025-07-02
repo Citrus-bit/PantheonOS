@@ -39,13 +39,25 @@ class Memory:
     def get_messages(self):
         return self._messages
 
-    def cleanup_after_interrupt(self):
+    def cleanup(self):
         """Cleanup the memory after the agent is interrupted."""
         while True:
+            logger.info(f"Cleaning up memory(len={len(self._messages)})")
+            if len(self._messages) == 0:
+                break
+
             last_message = self._messages[-1]
-            if last_message["role"] == "tool":
+            if 'role' not in last_message:
                 self._messages.pop()
-            else:
+            elif last_message["role"] == "user":
+                self._messages.pop()
+            elif last_message["role"] == "assistant":
+                if last_message["tool_calls"]:
+                    last_message["tool_calls"] = None
+
+            if last_message["role"] == "tool":
+                break
+            if last_message["role"] == "assistant":
                 break
 
 
