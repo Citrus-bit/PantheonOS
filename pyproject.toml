@@ -14,7 +14,7 @@ dependencies = [
     "openai>=1.58.1",
     "pillow>=10.4.0",
     "rich>=13.9.4",
-    "PyMuPDF",
+    "rich-pyfiglet",
 ]
 dynamic = ["version"]
 

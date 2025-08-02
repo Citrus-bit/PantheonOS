@@ -140,6 +140,17 @@ def print_agent_message(
                 )
 
 
+async def print_banner(console: Console, text: str="PANTHEON"):
+    from rich_pyfiglet import RichFiglet
+    rich_fig = RichFiglet(
+        text,
+        font="ansi_regular",
+        colors=["blue", "purple", "#FFC0CB"],
+        horizontal=True,
+    )
+    console.print(rich_fig)
+
+
 async def print_agent(agent: "Agent | RemoteAgent", console: Console | None = None):
     from ..remote.agent import RemoteAgent
     is_remote = isinstance(agent, RemoteAgent)
@@ -158,7 +169,9 @@ async def print_agent(agent: "Agent | RemoteAgent", console: Console | None = No
         _print(f"      - Server: {agent.server_host}:{agent.server_port}")
         _print(f"      - Service ID: {agent.service_id_or_name}")
     # print agent model
-    _print(f"    - [green]Model:[/green] {agent.model}")
+    _print(f"    - [green]Model:[/green]")
+    for model in agent.models:
+        _print(f"      - {model}")
     # print agent instructions
     _print(f"    - [green]Instructions:[/green] {agent.instructions}")
     # print agent tools

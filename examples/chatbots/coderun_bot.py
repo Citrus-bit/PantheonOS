@@ -10,7 +10,7 @@ async def main():
         agent = Agent(
             "coderun_bot",
             "You are an AI assistant that can run Python code.",
-            model="gpt-4o",
+            model="gpt-4.1",
         )
         await agent.remote_toolset(toolset.service_id)
         await agent.chat()

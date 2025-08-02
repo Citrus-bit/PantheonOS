@@ -1,11 +1,12 @@
 import asyncio
+import sys
 
 from rich.console import Console
 from rich.prompt import Prompt
 
 from ..agent import Agent
 from ..remote.agent import RemoteAgent
-from ..utils.misc import print_agent_message, print_agent
+from ..utils.misc import print_agent_message, print_agent, print_banner
 
 
 class Repl:
@@ -15,6 +16,7 @@ class Repl:
         self.console = Console()
 
     async def print_greeting(self):
+        await print_banner(self.console)
         self.console.print(
             "[bold]Welcome to the Pantheon REPL![/bold]\n" +
             "You can start by typing a message or type 'exit' to exit.\n"
@@ -37,6 +39,9 @@ class Repl:
     async def run(self, message: str | dict | None = None):
         import logging
         logging.getLogger().setLevel(logging.WARNING)
+        import loguru
+        loguru.logger.remove()
+        loguru.logger.add(sys.stdout, level="WARNING")
 
         await self.print_greeting()
         print_task = asyncio.create_task(self.print_message())

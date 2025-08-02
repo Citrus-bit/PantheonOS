@@ -11,7 +11,7 @@ async def main():
         agent = Agent(
             "shell_bot",
             "You are an AI assistant that can run shell commands.",
-            model="gpt-4o",
+            model="gpt-4.1",
         )
 
         await agent.remote_toolset(toolset.service_id)
