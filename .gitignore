@@ -172,3 +172,4 @@ try/
 .executor/
 .pantheon-chatroom*/
 .pantheon-chatroom-workspace*/
+tmp/

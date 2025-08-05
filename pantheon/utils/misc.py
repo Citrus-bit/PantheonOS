@@ -89,6 +89,7 @@ def print_agent_message(
         print_assistant_message: bool = True,
         print_tool_response: bool = True,
         print_markdown: bool = True,
+        max_tool_call_message_length: int | None = 1000,
     ):
     if console is None:
         def _print(msg: str, title: str | None = None):
@@ -121,6 +122,9 @@ def print_agent_message(
             formatted_content = json.dumps(message["raw_content"], indent=2)
         except Exception:
             formatted_content = message.get("content")
+        if max_tool_call_message_length is not None:
+            formatted_content = formatted_content[:max_tool_call_message_length]
+            formatted_content += "......"
         _print(
             f"[bold]Agent [blue]{agent_name}[/blue] is using tool "
             f"[green]{message.get('tool_name')}[/green]:[/bold] "
