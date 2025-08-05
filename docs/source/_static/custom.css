@@ -568,6 +568,10 @@ table tr:hover {
     height: auto !important;
 }
 
+#rtd-footer-container {
+    margin: 0 !important;
+}
+
 .navbar-brand img {
     max-width: 80px !important;
 }

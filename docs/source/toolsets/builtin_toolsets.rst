@@ -4,7 +4,7 @@ Built-in Toolsets
 Pantheon provides production-ready toolsets that can be deployed as services and connected to agents. Each toolset runs as an independent service with automatic tool registration and secure execution.
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
    
    python_interpreter
    r_interpreter
@@ -78,12 +78,3 @@ For production environments::
     
     # Run as service
     await toolset.run(log_level="INFO")
-
-Docker Deployment
-~~~~~~~~~~~~~~~~~
-
-Built-in toolsets have Docker images available::
-
-    docker run -p 8080:8080 pantheon/python-toolset \
-        --service-name python_sandbox \
-        --workdir /workspace

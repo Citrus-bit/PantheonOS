@@ -4,7 +4,7 @@ Toolsets
 Toolsets extend agent capabilities by providing access to external functions, APIs, and services. They are provided by the ``pantheon-toolsets`` package and built on the Magique framework, running as independent services that agents can connect to remotely.
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
    
    builtin_toolsets
    rag_system

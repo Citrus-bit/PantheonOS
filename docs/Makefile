@@ -28,9 +28,9 @@ help:
 clean:
 	rm -rf $(BUILDDIR)
 
-.PHONY: livehtml
-livehtml:
-	sphinx-autobuild "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
+.PHONY: dev
+dev:
+	sphinx-autobuild "$(SOURCEDIR)" "$(BUILDDIR)" --port 8080 $(SPHINXOPTS) $(O)
 
 .PHONY: linkcheck
 linkcheck:
@@ -39,76 +39,7 @@ linkcheck:
 	@echo "Link check complete; look for any errors in the above output " \
 	      "or in $(BUILDDIR)/linkcheck/output.txt."
 
-.PHONY: dev
-dev:
-	@echo "Starting development server with auto-reload..."
-	@echo "Python: $$(which python)"
-	@echo "sphinx-autobuild: $$(which sphinx-autobuild)"
-	sphinx-autobuild \
-		--host 127.0.0.1 \
-		--port 8080 \
-		--delay 0 \
-		--watch "$(SOURCEDIR)" \
-		--watch "../pantheon" \
-		--ignore "*.pyc" \
-		--ignore "*.pyo" \
-		--ignore "__pycache__" \
-		--ignore ".git" \
-		--ignore "$(BUILDDIR)" \
-		--ignore "*.swp" \
-		--ignore "*~" \
-		--ignore ".DS_Store" \
-		--re-ignore ".*\.#.*" \
-		--re-ignore ".*~$$" \
-		"$(SOURCEDIR)" "$(BUILDDIR)/html" $(SPHINXOPTS) $(O)
-
 .PHONY: install
 install:
 	@echo "Installing documentation dependencies..."
 	pip install -r requirements.txt
-
-.PHONY: dev-install
-dev-install: install dev
-	@echo "Dependencies installed and development server started"
-
-.PHONY: watch
-watch:
-	@echo "Starting documentation server with file watching..."
-	@echo "Watching directory: $(SOURCEDIR)"
-	@echo "Output directory: $(BUILDDIR)/html"
-	@echo "URL: http://127.0.0.1:8080"
-	@echo ""
-	micromamba run -n pantheon-test sphinx-autobuild \
-		--host 127.0.0.1 \
-		--port 8080 \
-		--delay 1 \
-		--watch source \
-		--open-browser \
-		source build/html
-
-.PHONY: dev-env
-dev-env:
-	@echo "Starting development server in pantheon-test environment..."
-	@./dev_with_env.sh
-
-.PHONY: dev-watch
-dev-watch:
-	@echo "Starting development server with aggressive file watching..."
-	@echo "This will watch for changes in source/ and ../pantheon/ directories"
-	sphinx-autobuild \
-		--host 127.0.0.1 \
-		--port 8080 \
-		--delay 0 \
-		--poll \
-		--watch "$(SOURCEDIR)" \
-		--watch "../pantheon" \
-		--ignore "*.pyc" \
-		--ignore "*.pyo" \
-		--ignore "__pycache__/*" \
-		--ignore ".git/*" \
-		--ignore "$(BUILDDIR)/*" \
-		--ignore "*.swp" \
-		--ignore "*~" \
-		--ignore ".DS_Store" \
-		--open-browser \
-		"$(SOURCEDIR)" "$(BUILDDIR)/html" $(SPHINXOPTS) $(O)

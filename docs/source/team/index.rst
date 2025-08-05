@@ -4,7 +4,7 @@ Team
 This section covers the various team collaboration patterns available in Pantheon. Teams enable multiple agents to work together effectively on complex tasks.
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
    
    sequential_team
    moa_team

@@ -45,7 +45,7 @@ Learn about agents, teams, memory, tools, and distributed architecture.
 Comprehensive API documentation for all classes and functions.
 :::
 
-:::{grid-item-card} 🧑‍💻 Examples & Tutorials
+:::{grid-item-card} 💻 Examples & Tutorials
 :link: examples/index
 :link-type: doc
 :text-align: center
