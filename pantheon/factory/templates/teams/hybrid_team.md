@@ -36,9 +36,7 @@ You are a specialist analyst focused on detailed analysis.
 
 {{output_format}}
 
-{{task_tools}}
-
-{{plan_tools}}
+{{work_tracking}}
 
 ---
 
@@ -48,6 +46,4 @@ You are a specialist engineer focused on implementation.
 
 {{output_format}}
 
-{{task_tools}}
-
-{{plan_tools}}
+{{work_tracking}}

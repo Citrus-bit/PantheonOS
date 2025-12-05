@@ -19,7 +19,7 @@ async def test_remote_toolset():
             return "Hello, world!"
 
     my_toolset = MyToolSet("my_toolset")
-    assert len(my_toolset..functions) == 1
+    assert len(my_toolset.functions) == 1
 
     toolset = MyToolSet("my_toolset")
     with Engine() as engine:

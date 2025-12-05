@@ -47,8 +47,6 @@ All sources properly cited with transparent attribution. Verified facts through 
 
 {{output_format}}
 
-{{task_tools}}
-
-{{plan_tools}}
+{{work_tracking}}
 
 {{delegation}}

@@ -552,12 +552,10 @@ def test_builtin_prompts_exist():
     ids = {p["id"] for p in prompts}
     assert "work_strategy" in ids
     assert "output_format" in ids
-    assert "task_tools" in ids
-    assert "plan_tools" in ids
+    assert "work_tracking" in ids
     assert "delegation" in ids
     assert "subagent_strategy" in ids
     assert "skills" in ids
-    assert "plan_mode" in ids
 
 
 def test_parse_agent_resolves_prompts(tmp_path):

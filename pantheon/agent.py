@@ -1183,19 +1183,6 @@ class Agent:
                 )
                 return transfer
 
-            # Check for exit_plan_mode tool call - stop execution for user approval
-            for msg in tool_messages:
-                if msg.get("tool_name") == "exit_plan_mode":
-                    raw_content = msg.get("raw_content", {})
-                    if isinstance(raw_content, dict) and raw_content.get(
-                        "exit_plan_mode"
-                    ):
-                        logger.info(
-                            f"🔒 [Agent:{self.name}] exit_plan_mode called - stopping execution for user approval"
-                        )
-                        # Stop conversation loop - user needs to approve the plan
-                        break
-
         return ResponseDetails(
             messages=history[init_len:],
             context_variables=context_variables,

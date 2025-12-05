@@ -43,8 +43,6 @@ Production-ready code with comprehensive testing, documentation, and performance
 
 {{output_format}}
 
-{{task_tools}}
-
-{{plan_tools}}
+{{work_tracking}}
 
 {{delegation}}

@@ -43,6 +43,4 @@ TECHNICAL STACK:
 
 {{output_format}}
 
-{{task_tools}}
-
-{{plan_tools}}
+{{work_tracking}}

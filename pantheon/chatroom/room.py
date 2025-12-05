@@ -18,14 +18,13 @@ from ..factory import (
 from ..memory import MemoryManager
 from ..team import PantheonTeam
 from ..toolset import ToolSet, tool
-from ..toolsets import PlanModeToolSet
 from ..utils.log import logger
 from ..utils.misc import run_func
 from .special_agents import get_suggestion_generator
 from .thread import Thread
 
 
-DEFAULT_TOOLSETS = ["todolist"]
+DEFAULT_TOOLSETS = []
 
 
 class ChatRoom(ToolSet):
@@ -308,12 +307,6 @@ class ChatRoom(ToolSet):
             required_mcp_servers,
         ) = self.template_manager.prepare_team(team_config)
 
-        # add default toolsets to agents
-        if chat_id:
-            default_toolsets = ["todolist"]
-            for agent in agent_configs.values():
-                agent.get("toolsets", []).extend(default_toolsets)
-
         # ===== STEP 2: Compute and ensure all required services =====
         await self._ensure_services("mcp", list(required_mcp_servers))
         await self._ensure_services("toolset", list(required_toolsets))
@@ -327,14 +320,7 @@ class ChatRoom(ToolSet):
         all_agents = await create_agents_from_template(endpoint_service, agent_configs)
         logger.info(f"Created {len(all_agents)} agents")
 
-        # ===== STEP 4: Add plan toolset to agents (if chat_id provided) =====
-        if chat_id:
-            for agent in all_agents:
-                plan_mode_toolset = PlanModeToolSet(agent=agent, name="plan_mode")
-                await agent.toolset(plan_mode_toolset)
-                logger.debug(f"Agent '{agent.name}': Added PlanModeToolSet")
-
-        # ===== STEP 5: Create and setup team =====
+        # ===== STEP 4: Create and setup team =====
         team = PantheonTeam(agents=all_agents)
         await team.async_setup()
 

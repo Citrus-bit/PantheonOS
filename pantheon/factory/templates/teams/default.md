@@ -39,8 +39,6 @@ Ensure consistent responses, proper attribution of delegated work, clear communi
 
 {{output_format}}
 
-{{task_tools}}
-
-{{plan_tools}}
+{{work_tracking}}
 
 {{delegation}}
