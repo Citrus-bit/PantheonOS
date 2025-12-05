@@ -619,3 +619,349 @@ def test_resolve_prompts_convenience_function():
     assert "{{work_strategy}}" not in result
     assert "Start" in result
     assert "End" in result
+
+
+# ===== Parameterized Prompt Tests =====
+
+
+def test_prompt_with_string_param(tmp_path):
+    """Test prompt with string parameter."""
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir()
+
+    _write_markdown(
+        prompts_dir,
+        "greeting.md",
+        """
+        ---
+        id: greeting
+        params:
+          name:
+            type: string
+            default: "World"
+        ---
+        Hello, {name}!
+        """,
+    )
+
+    resolver = PromptResolver(prompts_dir)
+
+    # Test with default value
+    result = resolver.resolve("{{greeting}}")
+    assert "Hello, World!" in result
+
+    # Test with passed value
+    result = resolver.resolve('{{greeting(name="Alice")}}')
+    assert "Hello, Alice!" in result
+
+
+def test_prompt_with_path_param_default(tmp_path):
+    """Test prompt with path parameter using default value."""
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir()
+
+    # Create a target directory for the default path
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+
+    _write_markdown(
+        prompts_dir,
+        "skills_test.md",
+        """
+        ---
+        id: skills_test
+        params:
+          root_dir:
+            type: path
+            default: "../skills"
+        ---
+        Skills directory: {root_dir}
+        """,
+    )
+
+    resolver = PromptResolver(prompts_dir)
+    result = resolver.resolve("{{skills_test}}")
+
+    # Default path should be resolved relative to prompt file (prompts_dir)
+    # ../skills from prompts_dir = tmp_path/skills
+    assert str(skills_dir) in result
+
+
+def test_prompt_with_path_param_passed(tmp_path):
+    """Test prompt with path parameter passed from caller."""
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir()
+
+    # Create caller directory
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+
+    # Create target directory relative to caller
+    custom_skills = agents_dir / "my_skills"
+    custom_skills.mkdir()
+
+    _write_markdown(
+        prompts_dir,
+        "skills_test.md",
+        """
+        ---
+        id: skills_test
+        params:
+          root_dir:
+            type: path
+            default: "../skills"
+        ---
+        Skills directory: {root_dir}
+        """,
+    )
+
+    resolver = PromptResolver(prompts_dir)
+
+    # Pass path relative to caller (agents_dir)
+    result = resolver.resolve(
+        '{{skills_test(root_dir="./my_skills")}}',
+        base_path=agents_dir
+    )
+
+    # Passed path should be resolved relative to base_path (agents_dir)
+    assert str(custom_skills) in result
+
+
+def test_prompt_with_absolute_path_param(tmp_path):
+    """Test prompt with absolute path parameter."""
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir()
+
+    absolute_path = "/absolute/path/to/skills"
+
+    _write_markdown(
+        prompts_dir,
+        "skills_test.md",
+        """
+        ---
+        id: skills_test
+        params:
+          root_dir:
+            type: path
+            default: "../skills"
+        ---
+        Skills directory: {root_dir}
+        """,
+    )
+
+    resolver = PromptResolver(prompts_dir)
+    result = resolver.resolve(f'{{{{skills_test(root_dir="{absolute_path}")}}}}')
+
+    # Absolute path should be used as-is
+    assert absolute_path in result
+
+
+def test_prompt_with_integer_param(tmp_path):
+    """Test prompt with integer parameter."""
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir()
+
+    _write_markdown(
+        prompts_dir,
+        "config.md",
+        """
+        ---
+        id: config
+        params:
+          max_items:
+            type: integer
+            default: 10
+        ---
+        Maximum items: {max_items}
+        """,
+    )
+
+    resolver = PromptResolver(prompts_dir)
+
+    # Test with default
+    result = resolver.resolve("{{config}}")
+    assert "Maximum items: 10" in result
+
+    # Test with passed value
+    result = resolver.resolve("{{config(max_items=25)}}")
+    assert "Maximum items: 25" in result
+
+
+def test_prompt_with_multiple_params(tmp_path):
+    """Test prompt with multiple parameters."""
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir()
+
+    _write_markdown(
+        prompts_dir,
+        "multi.md",
+        """
+        ---
+        id: multi
+        params:
+          name:
+            type: string
+            default: "default_name"
+          count:
+            type: integer
+            default: 5
+        ---
+        Name: {name}, Count: {count}
+        """,
+    )
+
+    resolver = PromptResolver(prompts_dir)
+
+    # Test with both params
+    result = resolver.resolve('{{multi(name="test", count=20)}}')
+    assert "Name: test" in result
+    assert "Count: 20" in result
+
+    # Test with partial params (use defaults for others)
+    result = resolver.resolve('{{multi(name="partial")}}')
+    assert "Name: partial" in result
+    assert "Count: 5" in result
+
+
+def test_builtin_skills_prompt_has_params():
+    """Test that built-in skills prompt has path parameter defined."""
+    resolver = get_prompt_resolver()
+    prompts = resolver.list_prompts()
+
+    skills_prompt = next((p for p in prompts if p["id"] == "skills"), None)
+    assert skills_prompt is not None
+    assert "params" in skills_prompt
+    assert "root_dir" in skills_prompt["params"]
+    assert skills_prompt["params"]["root_dir"]["type"] == "path"
+
+
+def test_parse_agent_with_parameterized_prompt(tmp_path):
+    """Test that agent parsing handles parameterized prompts correctly."""
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir()
+
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+
+    # Create custom skills directory
+    custom_skills = agents_dir / "local_skills"
+    custom_skills.mkdir()
+
+    _write_markdown(
+        prompts_dir,
+        "skills_param.md",
+        """
+        ---
+        id: skills_param
+        params:
+          root_dir:
+            type: path
+            default: "../skills"
+        ---
+        Use skills from: {root_dir}
+        """,
+    )
+
+    # Create agent with parameterized prompt reference
+    agent_path = _write_markdown(
+        agents_dir,
+        "agent.md",
+        """
+        ---
+        id: test_agent
+        name: Test Agent
+        model: openai/gpt-5
+        ---
+        You are an agent.
+
+        {{skills_param(root_dir="./local_skills")}}
+        """,
+    )
+
+    # Use custom resolver for this test
+    from pantheon.factory import template_io
+    original_resolver = template_io._prompt_resolver
+    template_io._prompt_resolver = PromptResolver(prompts_dir)
+
+    try:
+        parser = UnifiedMarkdownParser()
+        agent = parser.parse_file(agent_path)
+
+        # Path should be resolved relative to agent file
+        assert str(custom_skills) in agent.instructions
+        assert "{{skills_param" not in agent.instructions
+    finally:
+        template_io._prompt_resolver = original_resolver
+
+
+def test_nested_prompts_with_params(tmp_path):
+    """Test nested prompts where outer passes params to inner."""
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir()
+
+    _write_markdown(
+        prompts_dir,
+        "inner.md",
+        """
+        ---
+        id: inner
+        params:
+          value:
+            type: string
+            default: "inner_default"
+        ---
+        Inner value: {value}
+        """,
+    )
+
+    _write_markdown(
+        prompts_dir,
+        "outer.md",
+        """
+        ---
+        id: outer
+        ---
+        Outer content with {{inner(value="from_outer")}}
+        """,
+    )
+
+    resolver = PromptResolver(prompts_dir)
+    result = resolver.resolve("{{outer}}")
+
+    assert "Outer content with" in result
+    assert "Inner value: from_outer" in result
+
+
+def test_quoted_param_values(tmp_path):
+    """Test various quoting styles for parameter values."""
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir()
+
+    _write_markdown(
+        prompts_dir,
+        "quoted.md",
+        """
+        ---
+        id: quoted
+        params:
+          msg:
+            type: string
+            default: ""
+        ---
+        Message: {msg}
+        """,
+    )
+
+    resolver = PromptResolver(prompts_dir)
+
+    # Double quotes
+    result = resolver.resolve('{{quoted(msg="hello world")}}')
+    assert "Message: hello world" in result
+
+    # Single quotes
+    result = resolver.resolve("{{quoted(msg='hello world')}}")
+    assert "Message: hello world" in result
+
+    # Unquoted simple value
+    result = resolver.resolve("{{quoted(msg=simple)}}")
+    assert "Message: simple" in result

@@ -32,19 +32,27 @@ from .models import AgentConfig, TeamConfig
 
 class PromptResolver:
     """
-    Resolves {{prompt_name}} references in instructions.
+    Resolves {{prompt_name}} or {{prompt_name(params)}} references in instructions.
 
     Loads prompt templates from the prompts/ directory and expands
-    references in text. Supports nested references (prompts can
-    reference other prompts).
+    references in text. Supports:
+    - Nested references (prompts can reference other prompts)
+    - Parameterized prompts with {{name(key=value, ...)}} syntax
+    - Path parameters that resolve relative to the calling file
 
     Usage:
         resolver = PromptResolver()
-        expanded = resolver.resolve("{{work_strategy}}\\n\\nYour role is...")
+        expanded = resolver.resolve(
+            "{{skills(root_dir='./my_skills')}}",
+            base_path=Path("/path/to/agent.md").parent
+        )
     """
 
-    # Pattern to match {{prompt_name}}
-    PATTERN = re.compile(r'\{\{(\w+)\}\}')
+    # Pattern to match {{name}} or {{name(key=value, ...)}}
+    PATTERN = re.compile(r'\{\{(\w+)(?:\(([^)]*)\))?\}\}')
+
+    # Pattern to parse key=value pairs (supports quoted values)
+    PARAM_PATTERN = re.compile(r'(\w+)\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^,\s]+))')
 
     def __init__(self, prompts_dir: Optional[Path] = None):
         """
@@ -57,35 +65,179 @@ class PromptResolver:
         if prompts_dir is None:
             prompts_dir = Path(__file__).parent / "templates" / "prompts"
         self.prompts_dir = prompts_dir
-        self._cache: Dict[str, str] = {}
+        # Cache: name -> (content, param_definitions)
+        self._cache: Dict[str, tuple] = {}
 
-    def resolve(self, text: str, max_depth: int = 10) -> str:
+    def resolve(
+        self,
+        text: str,
+        base_path: Optional[Path] = None,
+        max_depth: int = 10,
+    ) -> str:
         """
-        Expand all {{name}} references in the text.
+        Expand all {{name}} or {{name(params)}} references in the text.
 
         Args:
-            text: Text containing {{prompt_name}} references
+            text: Text containing {{prompt_name}} or {{prompt_name(params)}} references
+            base_path: Base path for resolving relative paths in passed parameters.
+                      If None, uses the prompts directory.
             max_depth: Maximum recursion depth for nested references
 
         Returns:
             Text with all references expanded
 
         Raises:
-            ValueError: If a referenced prompt is not found
-            RecursionError: If max_depth is exceeded (circular references)
+            ValueError: If a referenced prompt is not found or required param missing
         """
         if not text or max_depth <= 0:
             return text
 
+        if base_path is None:
+            base_path = self.prompts_dir
+
         def replacer(match: re.Match) -> str:
             name = match.group(1)
-            content = self._load_prompt(name)
-            # Recursively resolve nested references
-            return self.resolve(content, max_depth - 1)
+            params_str = match.group(2) or ""
+
+            # Load prompt content and parameter definitions
+            content, param_defs = self._load_prompt(name)
+            prompt_path = self.prompts_dir / f"{name}.md"
+
+            # Parse passed parameters
+            passed_params = self._parse_params(params_str)
+
+            # Build final parameters with path resolution
+            final_params = self._build_final_params(
+                param_defs, passed_params, base_path, prompt_path.parent
+            )
+
+            # Apply parameters to content
+            content = self._apply_params(content, final_params)
+
+            # Recursively resolve nested prompts
+            # Nested prompts use the prompt file's directory as base_path
+            return self.resolve(content, prompt_path.parent, max_depth - 1)
 
         return self.PATTERN.sub(replacer, text)
 
-    def _load_prompt(self, name: str) -> str:
+    def _parse_params(self, params_str: str) -> Dict[str, str]:
+        """
+        Parse 'key=value, key2="value 2"' string into dict.
+
+        Args:
+            params_str: Parameter string like 'root_dir="./skills", max=10'
+
+        Returns:
+            Dict mapping parameter names to string values
+        """
+        if not params_str or not params_str.strip():
+            return {}
+
+        params = {}
+        for match in self.PARAM_PATTERN.finditer(params_str):
+            key = match.group(1)
+            # Value is in group 2 (double-quoted), 3 (single-quoted), or 4 (unquoted)
+            value = match.group(2) or match.group(3) or match.group(4) or ""
+            params[key] = value
+        return params
+
+    def _build_final_params(
+        self,
+        param_defs: Dict[str, Any],
+        passed_params: Dict[str, str],
+        caller_base_path: Path,
+        prompt_base_path: Path,
+    ) -> Dict[str, Any]:
+        """
+        Build final parameter values with proper path resolution.
+
+        - Passed values: resolve relative paths against caller_base_path
+        - Default values: resolve relative paths against prompt_base_path
+
+        Args:
+            param_defs: Parameter definitions from prompt frontmatter
+            passed_params: Parameters passed in {{name(params)}}
+            caller_base_path: Directory of the file containing the {{}} reference
+            prompt_base_path: Directory of the prompt template file
+
+        Returns:
+            Dict with final resolved parameter values
+        """
+        final_params = {}
+
+        for param_name, param_def in param_defs.items():
+            param_type = param_def.get("type", "string")
+            default_value = param_def.get("default", "")
+
+            if param_name in passed_params:
+                # Use passed value, resolve relative to caller
+                value = passed_params[param_name]
+                if param_type == "path":
+                    value = self._resolve_path(value, caller_base_path)
+            else:
+                # Use default value, resolve relative to prompt file
+                value = default_value
+                if param_type == "path":
+                    value = self._resolve_path(value, prompt_base_path)
+
+            # Type conversion for non-path types
+            if param_type == "integer":
+                try:
+                    value = int(value) if value else 0
+                except ValueError:
+                    value = 0
+
+            final_params[param_name] = value
+
+        return final_params
+
+    def _resolve_path(self, path_str: str, base_path: Path) -> str:
+        """
+        Resolve path relative to base_path, or return as-is if absolute.
+
+        Args:
+            path_str: Path string (absolute or relative)
+            base_path: Base directory for resolving relative paths
+
+        Returns:
+            Resolved absolute path as string
+        """
+        if not path_str:
+            return path_str
+
+        path = Path(path_str)
+        if path.is_absolute():
+            return str(path)
+
+        resolved = (base_path / path).resolve()
+        return str(resolved)
+
+    def _apply_params(self, content: str, params: Dict[str, Any]) -> str:
+        """
+        Apply parameters to content using {param} syntax.
+
+        Uses a safe approach that only replaces defined parameters,
+        leaving other {text} unchanged.
+
+        Args:
+            content: Template content with {param} placeholders
+            params: Parameter values to substitute
+
+        Returns:
+            Content with parameters applied
+        """
+        if not params:
+            return content
+
+        # Replace each parameter individually to avoid KeyError on unrelated {text}
+        result = content
+        for key, value in params.items():
+            placeholder = "{" + key + "}"
+            result = result.replace(placeholder, str(value))
+
+        return result
+
+    def _load_prompt(self, name: str) -> tuple:
         """
         Load a prompt template by name.
 
@@ -93,7 +245,7 @@ class PromptResolver:
             name: Prompt name (without .md extension)
 
         Returns:
-            Prompt content (body only, without frontmatter)
+            Tuple of (content, param_definitions)
 
         Raises:
             ValueError: If prompt file not found
@@ -108,10 +260,11 @@ class PromptResolver:
         try:
             content = path.read_text(encoding="utf-8")
             post = frontmatter.loads(content)
-            # Use body content only (strip frontmatter)
             prompt_content = (post.content or "").strip()
-            self._cache[name] = prompt_content
-            return prompt_content
+            param_defs = post.metadata.get("params", {})
+
+            self._cache[name] = (prompt_content, param_defs)
+            return prompt_content, param_defs
         except Exception as exc:
             raise ValueError(f"Failed to load prompt '{name}': {exc}") from exc
 
@@ -120,7 +273,7 @@ class PromptResolver:
         List all available prompts.
 
         Returns:
-            List of dicts with prompt metadata (id, name, description)
+            List of dicts with prompt metadata (id, name, description, params)
         """
         prompts = []
         if not self.prompts_dir.exists():
@@ -134,6 +287,7 @@ class PromptResolver:
                     "id": post.metadata.get("id", path.stem),
                     "name": post.metadata.get("name", path.stem),
                     "description": post.metadata.get("description", ""),
+                    "params": post.metadata.get("params", {}),
                 })
             except Exception as exc:
                 logger.warning(f"Failed to parse prompt {path}: {exc}")
@@ -157,17 +311,19 @@ def get_prompt_resolver() -> PromptResolver:
     return _prompt_resolver
 
 
-def resolve_prompts(text: str) -> str:
+def resolve_prompts(text: str, base_path: Optional[Path] = None) -> str:
     """
     Convenience function to resolve prompts in text.
 
     Args:
-        text: Text containing {{prompt_name}} references
+        text: Text containing {{prompt_name}} or {{prompt_name(params)}} references
+        base_path: Base path for resolving relative paths in parameters.
+                  If None, uses the prompts directory.
 
     Returns:
         Text with all references expanded
     """
-    return get_prompt_resolver().resolve(text)
+    return get_prompt_resolver().resolve(text, base_path)
 
 
 # ===== HELPER FUNCTIONS =====
@@ -190,6 +346,10 @@ def _is_path_reference(entry: str) -> bool:
 class UnifiedMarkdownParser:
     """Unified Markdown parser for agents and teams"""
 
+    def __init__(self):
+        # Track current file path for relative path resolution in prompts
+        self._current_file_path: Optional[Path] = None
+
     def parse_file(self, path: Path) -> Union[AgentConfig, TeamConfig]:
         """Parse a markdown file, auto-detecting whether it's an agent or team."""
         if not path.exists():
@@ -207,13 +367,27 @@ class UnifiedMarkdownParser:
                 f"Failed to parse markdown frontmatter: {exc}"
             ) from exc
 
+        # Store file path for use in parse_agent/parse_team
+        self._current_file_path = path
+
         entry_type = str(post.metadata.get("type", "")).lower()
         if entry_type in ("chatroom", "team"):
             return self.parse_team(post)
         return self.parse_agent(post)
 
-    def parse_agent(self, content: Union[str, Any]) -> AgentConfig:
-        """Parse a single agent markdown string or already-loaded post."""
+    def parse_agent(
+        self,
+        content: Union[str, Any],
+        base_path: Optional[Path] = None,
+    ) -> AgentConfig:
+        """
+        Parse a single agent markdown string or already-loaded post.
+
+        Args:
+            content: Markdown string or frontmatter.Post object
+            base_path: Base path for resolving relative paths in prompt parameters.
+                      If None, uses _current_file_path (set by parse_file) or prompts dir.
+        """
         post = self._ensure_post(content)
         metadata = dict(post.metadata)
 
@@ -221,9 +395,13 @@ class UnifiedMarkdownParser:
         if not agent_id:
             raise ValueError("Agent must have 'id' in frontmatter")
 
-        # Resolve {{prompt_name}} references in instructions
+        # Determine base path for prompt resolution
+        if base_path is None and self._current_file_path is not None:
+            base_path = self._current_file_path.parent
+
+        # Resolve {{prompt_name}} or {{prompt_name(params)}} references in instructions
         instructions = (post.content or "").strip()
-        instructions = resolve_prompts(instructions)
+        instructions = resolve_prompts(instructions, base_path)
 
         return AgentConfig(
             id=agent_id,
@@ -236,7 +414,11 @@ class UnifiedMarkdownParser:
             tags=list(metadata.get("tags", []) or []),
         )
 
-    def parse_team(self, content: Union[str, Any]) -> TeamConfig:
+    def parse_team(
+        self,
+        content: Union[str, Any],
+        base_path: Optional[Path] = None,
+    ) -> TeamConfig:
         """
         Parse a team markdown string or already-loaded post.
 
@@ -248,9 +430,18 @@ class UnifiedMarkdownParser:
         For ID and path references, a placeholder AgentConfig is created with only
         the 'id' field populated. The 'model' field will be empty, indicating the
         agent needs to be resolved later by FileBasedTemplateManager.
+
+        Args:
+            content: Markdown string or frontmatter.Post object
+            base_path: Base path for resolving relative paths in prompt parameters.
+                      If None, uses _current_file_path (set by parse_file) or prompts dir.
         """
         post = self._ensure_post(content)
         metadata = dict(post.metadata)
+
+        # Determine base path for prompt resolution
+        if base_path is None and self._current_file_path is not None:
+            base_path = self._current_file_path.parent
 
         team_id = str(metadata.get("id", "")).strip()
         if not team_id:
@@ -327,8 +518,8 @@ class UnifiedMarkdownParser:
                     instructions = instruction_sections[inline_idx].strip()
                 inline_idx += 1
 
-                # Resolve {{prompt_name}} references in instructions
-                instructions = resolve_prompts(instructions)
+                # Resolve {{prompt_name}} or {{prompt_name(params)}} references
+                instructions = resolve_prompts(instructions, base_path)
 
                 agents.append(
                     AgentConfig(
