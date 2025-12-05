@@ -15,9 +15,7 @@ async def create_agent(
     icon: str,
     toolsets: list[str] | None = None,
     mcp_servers: list[str] | None = None,
-    toolful: bool = False,
     description: str | None = None,
-    enable_skills: bool = False,
     **kwargs,
 ) -> Agent:
     """Create an agent from a template with all providers (toolsets and MCP servers).
@@ -30,9 +28,7 @@ async def create_agent(
         icon: The icon to use for the agent.
         toolsets: List of toolset names to add to the agent.
         mcp_servers: List of MCP server names to add to the agent.
-        toolful: Whether the agent is toolful.
         description: Optional description of the agent's purpose and capabilities.
-        enable_skills: Whether to inject Pantheon Skills guidance for this agent.
     """
     agent = Agent(
         name=name,
@@ -40,9 +36,7 @@ async def create_agent(
         model=model,
         icon=icon,
         description=description,
-        enable_skills=enable_skills,
     )
-    agent.toolful = toolful
     agent.not_loaded_toolsets = []
     toolsets_added = []
     mcp_server_added = []

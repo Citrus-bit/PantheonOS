@@ -193,9 +193,7 @@ class ChatRoom(ToolSet):
         if isinstance(template_obj, TeamConfig):
             team_config = template_obj
         else:
-            team_config = self.template_manager.dict_to_team_config(
-                template_obj
-            )
+            team_config = self.template_manager.dict_to_team_config(template_obj)
 
         extra_data["team_template"] = dataclasses.asdict(team_config)
 
@@ -249,9 +247,7 @@ class ChatRoom(ToolSet):
             )
 
         # Convert dict to TeamConfig
-        team_config = self.template_manager.dict_to_team_config(
-            team_template_dict
-        )
+        team_config = self.template_manager.dict_to_team_config(team_template_dict)
 
         # Create team with per-chat toolsets
         return await self._create_team_from_template(team_config, chat_id=chat_id)
@@ -512,7 +508,6 @@ class ChatRoom(ToolSet):
             return {
                 "name": agent.name,
                 "instructions": agent.instructions,
-                "toolful": getattr(agent, "toolful", False),
                 "tools": [t for t in agent.functions.keys()],
                 "toolsets": [],
                 "icon": agent.icon,
