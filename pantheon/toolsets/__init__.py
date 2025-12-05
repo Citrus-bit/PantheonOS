@@ -8,7 +8,7 @@ from .web import WebToolSet
 from .workflow import WorkflowToolSet
 from .notebook import IntegratedNotebookToolSet, JupyterKernelToolSet
 from .scraper import ScraperToolSet
-from .vector_rag import VectorRAGToolSet
+from .rag import VectorRAGToolSet
 from .database_api import DatabaseAPIQueryToolSet
 
 

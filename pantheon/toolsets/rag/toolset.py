@@ -1,6 +1,6 @@
-from ..toolset import ToolSet, tool
-from ..utils.log import logger
-from ..rag.vectordb import VectorDB
+from ...toolset import ToolSet, tool
+from ...utils.log import logger
+from .vectordb import VectorDB
 
 
 class VectorRAGToolSet(ToolSet):
