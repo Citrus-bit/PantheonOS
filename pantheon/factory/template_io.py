@@ -49,7 +49,7 @@ class PromptResolver:
 
     # Pattern to match {{name}} or {{path}} or {{name(key=value, ...)}}
     # Supports: letters, digits, underscore, dot, slash, hyphen
-    PATTERN = re.compile(r"\{\{([\w./-]+)(?:\(([^)]*)\))?\}\}")
+    PATTERN = re.compile(r"(?<!\$)\{\{([\w./-]+)(?:\(([^)]*)\))?\}\}")
 
     # Pattern to parse key=value pairs (supports quoted values)
     PARAM_PATTERN = re.compile(r'(\w+)\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^,\s]+))')

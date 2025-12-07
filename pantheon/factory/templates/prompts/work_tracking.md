@@ -9,8 +9,8 @@ description: File-based planning and todo management guidance
 Use file-based tracking for task management and planning. This provides transparency and persistence.
 
 **File Structure:**
-- Plan files live in `.pantheon/.plan/` and must be named `<base_name>__plan.md` (letters/numbers/hyphens only)
-- Todo files live in `.pantheon/.todo/` and must be named `<base_name>__todo.md`
+- Plan files live in `.pantheon/brain/${{client_id}}/<base_name>__plan.md` (letters/numbers/hyphens only)
+- Todo files live in `.pantheon/brain/${{client_id}}/<base_name>__todo.md` 
 - Create directories if they do not exist before writing
 
 **When to Use:**
@@ -78,5 +78,5 @@ Brief description of what we're building/solving
 
 **Usage Notes:**
 - Plan and todo files are independent; create whichever provides value (or both).
-- Mention the file paths you touched in your responses (e.g., `Updated .pantheon/.todo/refactor-api__todo.md`).
+- Mention the file paths you touched in your responses .
 - If you skip creating these files for complex work, briefly justify why.

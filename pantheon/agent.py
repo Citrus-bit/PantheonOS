@@ -2,6 +2,7 @@ import asyncio
 import copy
 import inspect
 import json
+import re
 import sys
 import time
 from abc import ABC, abstractmethod
@@ -1060,6 +1061,46 @@ class Agent:
         else:
             return {}
 
+    def _render_system_prompt(self, prompt: str, context_variables: dict) -> str:
+        """Render system prompt with context variables.
+        
+        Supports `${{ ... }}` syntax for python format strings.
+        Example: ${{ "Hello {name}" }} or ${{ context_variables['name'] }}
+        """
+        if not prompt or "${{" not in prompt:
+            return prompt
+
+        # Regex to find ${{ ... }} blocks
+        pattern = re.compile(r"\$\{\{(.*?)\}\}")
+        
+        def replacer(match: re.Match) -> str:
+            content = match.group(1).strip()
+            
+            # Check quoting
+            is_quoted = False
+            if (content.startswith('"') and content.endswith('"')) or \
+               (content.startswith("'") and content.endswith("'")):
+                content = content[1:-1]
+                is_quoted = True
+            
+            # If not quoted and has no braces, treat as a direct variable reference
+            # e.g. ${{ client_id }} -> {client_id} -> value
+            if not is_quoted and "{" not in content:
+                content = "{" + content + "}"
+
+            try:
+                # Use str.format for safe interpolation
+                # Inject context_variables both as unpacked kwargs and as a dict
+                return content.format(**context_variables, context_variables=context_variables)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to render system prompt block '{{{{ {content} }}}}': {e}"
+                )
+                # Return original block on failure to avoid silent errors
+                return match.group(0)
+
+        return pattern.sub(replacer, prompt)
+
     async def _run_stream(
         self,
         messages: list[dict],
@@ -1080,8 +1121,12 @@ class Agent:
         history = copy.deepcopy(messages)
         tool_timeout = tool_timeout or self.tool_timeout
 
+
         # Use instructions directly - all prompt composition happens at template parsing time
-        system_prompt = self.instructions
+        # Render system prompt with context variables
+        system_prompt = self._render_system_prompt(
+            self.instructions, context_variables or {}
+        )
         current_timestamp = time.time()
 
         if (len(history) > 0) and (history[0]["role"] == "system"):

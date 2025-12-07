@@ -18,6 +18,7 @@ default_coordinator:
   icon: 🧭
   toolsets:
     - file_manager
+    - python_interpreter
 ---
 
 Team Coordinator orchestrating specialists for comprehensive task handling.
@@ -42,3 +43,5 @@ Ensure consistent responses, proper attribution of delegated work, clear communi
 {{work_tracking}}
 
 {{delegation}}
+
+{{packages}}

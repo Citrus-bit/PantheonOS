@@ -53,7 +53,7 @@ notification = await pp.packages.ops_center.notify.async_call(
 )
 ```
 - Treat regular methods like any other Python function.
-- ToolSet methods remain async-aware: call them with `await ...` or use `.async_call(...)` explicitly.
+- ToolSet methods remain async-aware: call them with `await ...` or use `await .async_call(...)` explicitly.
 
 ## Authoring or Updating Packages
 1. Create/modify files under `.pantheon/packages/<package_name>/` via `file_manager`, `shell`, or `python_interpreter`. No `__init__.py` is required.
