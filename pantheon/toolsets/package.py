@@ -1,20 +1,59 @@
-"""Unified package management toolset for Pantheon packages."""
+"""Unified package management toolset for Pantheon packages.
+
+This module provides the `PackageToolSet` class for discovering and searching
+packages within a Pantheon workspace, supporting both keyword-based and
+LLM-based semantic search capabilities.
+"""
 
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 
 from ..package_runtime import get_package_manager
-from ..toolset import ToolSet, tool
+from ..toolset import ToolSet, tool, get_current_context_variables
+from ..utils.log import logger
+
+# Default low-cost model for semantic search
+DEFAULT_SEMANTIC_MODEL = "gpt-4o-mini"
 
 
 class PackageToolSet(ToolSet):
-    """Expose read-only management functions for packages via tools."""
+    """Expose read-only management functions for packages via tools.
+
+    This toolset provides package and tool discovery capabilities for
+    Pantheon workspaces:
+
+    - **search_packages** (UI/API): List packages with keyword filtering.
+      Not exposed to LLM.
+
+    - **search_tools** (LLM): Semantic search for callable methods.
+      Returns full signatures for direct invocation.
+
+    The semantic search uses `call_agent` mechanism to delegate to a
+    low-cost LLM model (default: gpt-4o-mini) for intelligent matching.
+
+    Future Improvements:
+        - Embedding-based pre-filtering for large package collections
+        - Hybrid approach: Embedding recall + LLM rerank
+
+    Args:
+        name: ToolSet identifier name.
+        workdir: Workspace root directory. Packages are stored in
+            `.pantheon/packages` under this directory.
+        enable_semantic_search: Whether to enable LLM-based semantic
+            search by default for search_tools. Defaults to True.
+        semantic_model: Model name for semantic search. Defaults to
+            "gpt-4o-mini" for cost efficiency.
+    """
 
     def __init__(
         self,
         name: str,
         workdir: str | Path | None = None,
+        enable_semantic_search: bool = True,
+        semantic_model: str = DEFAULT_SEMANTIC_MODEL,
         **kwargs,
     ):
         super().__init__(name, **kwargs)
@@ -22,27 +61,338 @@ class PackageToolSet(ToolSet):
         packages_path = root / ".pantheon" / "packages"
         packages_path.mkdir(parents=True, exist_ok=True)
         self.manager = get_package_manager(packages_path)
+        self.enable_semantic_search = enable_semantic_search
+        self.semantic_model = semantic_model
 
-    @tool
-    async def search_packages(self, query: str | None = None) -> dict:
-        """Return packages whose name, description, or method docs match the query."""
+    def _keyword_search(
+        self,
+        query: str,
+        items: list[dict],
+        fields: list[str],
+    ) -> list[dict]:
+        """Generic keyword-based substring matching.
 
+        Args:
+            query: Search query string.
+            items: List of dictionaries to search.
+            fields: List of field names to search in each item.
+
+        Returns:
+            Filtered list of items matching the query.
+        """
+        q = query.lower()
+        results = []
+        for item in items:
+            haystacks = []
+            for field in fields:
+                value = item.get(field)
+                if isinstance(value, list):
+                    haystacks.append(" ".join(value))
+                elif value:
+                    haystacks.append(str(value))
+            if any(q in hay.lower() for hay in haystacks):
+                results.append(item)
+        return results
+
+    def _parse_llm_response(self, response: str) -> list[str]:
+        """Parse LLM response to extract matched identifiers.
+
+        Args:
+            response: Raw LLM response string.
+
+        Returns:
+            List of identifiers extracted from the response.
+        """
+        try:
+            # Try to extract JSON array from response (handles markdown code blocks)
+            json_match = re.search(
+                r'\[\s*(?:"[^"]*"\s*,?\s*)*\]',
+                response,
+                re.DOTALL,
+            )
+            if json_match:
+                return json.loads(json_match.group())
+
+            # Try direct JSON parse
+            result = json.loads(response)
+            if isinstance(result, list):
+                return result
+            return []
+        except (json.JSONDecodeError, AttributeError):
+            logger.warning(f"Failed to parse LLM response: {response[:100]}...")
+            return []
+
+    @tool(exclude=True)
+    async def search_packages(
+        self,
+        query: str | None = None,
+    ) -> dict:
+        """List and search available packages (for UI/API use).
+
+        Returns package-level metadata including name, description,
+        available methods, and status. Not exposed to LLM - use
+        search_tools for LLM-based tool discovery.
+
+        Args:
+            query: Optional keyword filter. If provided, filters packages
+                by substring matching on name, description, and method names.
+                If None, returns all available packages.
+
+        Returns:
+            dict: {
+                "success": bool,
+                "packages": [
+                    {
+                        "name": str,
+                        "description": str | None,
+                        "methods": list[str],
+                        "status": str,
+                        "origin": "user" | "system",
+                        "path": str | None,
+                        ...
+                    },
+                    ...
+                ],
+                "error": str  # only present if success is False
+            }
+
+        Examples:
+            # List all packages
+            >>> await search_packages()
+
+            # Filter by keyword
+            >>> await search_packages("data")
+        """
         try:
             packages = self.manager.list_packages()
+
             if not query:
                 return {"success": True, "packages": packages}
-            q = query.lower()
-            results = []
-            for pkg in packages:
-                haystacks = [
-                    pkg.get("name") or "",
-                    pkg.get("description") or "",
-                    " ".join(pkg.get("methods") or []),
-                ]
-                if any(q in hay.lower() for hay in haystacks):
-                    results.append(pkg)
+
+            # Simple keyword filtering
+            results = self._keyword_search(query, packages, ["name", "description", "methods"])
             return {"success": True, "packages": results}
+
         except Exception as exc:
+            logger.exception(f"search_packages failed: {exc}")
             return {"success": False, "error": str(exc)}
+
+    def _get_all_tools(self) -> list[dict]:
+        """Get all tools from all packages with full metadata.
+
+        Returns:
+            List of tool dictionaries with package, method, signature, doc.
+        """
+        tools = []
+        for pkg in self.manager.list_packages():
+            pkg_name = pkg.get("name", "unknown")
+            try:
+                detail = self.manager.describe_package(pkg_name)
+                if not detail.get("success"):
+                    continue
+                pkg_info = detail.get("package", {})
+                for method in pkg_info.get("methods", []):
+                    tools.append({
+                        "package": pkg_name,
+                        "method": method.get("name"),
+                        "signature": method.get("signature", "()"),
+                        "doc": method.get("doc") or "",
+                        "async": method.get("async", False),
+                        "call_example": f"packages.{pkg_name}.{method.get('name')}(...)",
+                    })
+            except Exception as e:
+                logger.warning(f"Failed to get tools from package {pkg_name}: {e}")
+        return tools
+
+    def _format_tools_for_llm(
+        self,
+        tools: list[dict],
+        max_doc_len: int = 100,
+    ) -> str:
+        """Format tool information for LLM consumption.
+
+        Args:
+            tools: List of tool metadata dictionaries.
+            max_doc_len: Maximum doc length to include.
+
+        Returns:
+            Formatted string representation of tools.
+        """
+        lines = []
+        for t in tools:
+            doc = (t.get("doc") or "")[:max_doc_len]
+            async_marker = "[async] " if t.get("async") else ""
+            lines.append(
+                f"- {t['package']}.{t['method']}{t['signature']}: {async_marker}{doc}"
+            )
+        return "\n".join(lines)
+
+
+    async def _semantic_search_tools(
+        self,
+        query: str,
+        tools: list[dict],
+        use_context: bool = False,
+    ) -> list[dict]:
+        """Use LLM to perform semantic search on tools.
+
+        Args:
+            query: Natural language search query.
+            tools: List of all available tools.
+            use_context: Whether to include conversation history for
+                context-aware search.
+
+        Returns:
+            List of semantically matching tools.
+        """
+        ctx = get_current_context_variables()
+        if ctx is None or not ctx.get("_call_agent"):
+            logger.debug("call_agent not available, falling back to keyword search")
+            return self._keyword_search(query, tools, ["package", "method", "doc"])
+
+        tools_info = self._format_tools_for_llm(tools)
+
+        prompt = f"""You are a tool search assistant. Find the most relevant tools based on the user's query.
+
+## Available Tools
+
+{tools_info}
+
+## User Query
+
+{query}
+
+## Task
+
+Return tools that can fulfill the user's need. Consider:
+- Semantic similarity of the query to tool names and descriptions
+- Whether the tool's functionality matches the intent
+
+## Output Format
+
+Output a JSON array of tool identifiers (package.method):
+["package1.method1", "package2.method2"]
+
+If no tools match, return an empty array:
+[]
+"""
+
+        try:
+            response = await ctx.call_agent(
+                messages=[{"role": "user", "content": prompt}],
+                system_prompt=(
+                    "You are a precise tool search assistant. "
+                    "Always respond with valid JSON only, no explanations."
+                ),
+                model=self.semantic_model,
+                use_memory=use_context,
+            )
+
+            # Parse response
+            matched_ids = self._parse_llm_response(response)
+
+            if not matched_ids:
+                return []
+
+            # Filter tools by matched identifiers
+            id_set = set(mid.lower() for mid in matched_ids)
+            results = [
+                t for t in tools
+                if f"{t['package']}.{t['method']}".lower() in id_set
+            ]
+
+            logger.debug(f"Semantic search matched {len(results)} tools for: {query}")
+            return results
+
+        except Exception as e:
+            logger.warning(f"Semantic tool search failed, falling back to keyword: {e}")
+            return self._keyword_search(query, tools, ["package", "method", "doc"])
+
+
+    @tool
+    async def search_tools(
+        self,
+        query: str | None = None,
+        semantic: bool | None = None,
+        top_k: int | None = None,
+        use_context: bool = False,
+    ) -> dict:
+        """Search for callable tools across all packages.
+
+        Unlike search_packages which returns package-level information,
+        this tool searches at the method level and returns full signatures
+        and documentation, enabling direct invocation via the packages API.
+
+        Args:
+            query: Search query describing what tool/functionality you need.
+                If None or empty, returns all available tools.
+                Use natural language like "convert CSV to Excel".
+            semantic: Explicitly control search mode.
+                - True: Use LLM-based semantic search.
+                - False: Use keyword substring matching.
+                - None (default): Use the toolset's default setting.
+            top_k: Maximum number of tools to return. None means no limit.
+            use_context: Whether to use conversation history as context
+                for semantic search. Useful when the query references
+                previous discussion (e.g., "find a tool similar to what
+                we discussed"). Defaults to False.
+
+        Returns:
+            dict: {
+                "success": bool,
+                "tools": [
+                    {
+                        "package": str,         # Package name
+                        "method": str,          # Method name
+                        "signature": str,       # Full signature with params
+                        "doc": str,             # Method documentation
+                        "async": bool,          # Whether method is async
+                        "call_example": str     # Example: packages.pkg.method(...)
+                    },
+                    ...
+                ],
+                "error": str  # only present if success is False
+            }
+
+        Examples:
+            # Find tools for data conversion
+            >>> search_tools("convert CSV to Excel")
+
+            # List all available tools
+            >>> search_tools()
+
+            # Keyword search with limit
+            >>> search_tools("export", semantic=False, top_k=5)
+
+            # Context-aware search (uses conversation history)
+            >>> search_tools("find something similar to what we discussed", use_context=True)
+        """
+        try:
+            tools = self._get_all_tools()
+
+            if not query:
+                result_tools = tools
+            else:
+                use_semantic = (
+                    semantic if semantic is not None else self.enable_semantic_search
+                )
+
+                if use_semantic:
+                    result_tools = await self._semantic_search_tools(
+                        query, tools, use_context=use_context
+                    )
+                else:
+                    result_tools = self._keyword_search(query, tools, ["package", "method", "doc"])
+
+            # Apply top_k limit
+            if top_k is not None and top_k > 0:
+                result_tools = result_tools[:top_k]
+
+            return {"success": True, "tools": result_tools}
+
+        except Exception as exc:
+            logger.exception(f"search_tools failed: {exc}")
+            return {"success": False, "error": str(exc)}
+
 
 __all__ = ["PackageToolSet"]
