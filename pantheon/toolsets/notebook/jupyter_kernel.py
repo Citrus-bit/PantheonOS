@@ -501,7 +501,21 @@ class JupyterKernelToolSet(ToolSet):
         return dict(ctx) if ctx else {}
 
     def _build_kernel_env(self) -> dict:
+        import sys
+        
         env = os.environ.copy()
+        
+        # Export current process's sys.path to PYTHONPATH
+        # This ensures the kernel subprocess can find modules available in the parent process
+        # (e.g., pantheon package when running from source)
+        current_paths = [p for p in sys.path if p]  # Filter out empty strings
+        existing_pythonpath = env.get("PYTHONPATH", "")
+        if existing_pythonpath:
+            # Prepend current sys.path to existing PYTHONPATH
+            env["PYTHONPATH"] = os.pathsep.join(current_paths) + os.pathsep + existing_pythonpath
+        else:
+            env["PYTHONPATH"] = os.pathsep.join(current_paths)
+        
         return build_context_env(
             workdir=self.workdir,
             context_variables=self._current_context_dict(),

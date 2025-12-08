@@ -332,23 +332,26 @@ class NotebookContentsToolSet(ToolSet):
         cell_type: str,
         source: str = "",
         cell_id: Optional[str] = None,
-        below_cell_id: Optional[str] = None,
+        position: Optional[str] = None,
         metadata: Optional[dict] = None,
     ) -> dict:
-        """Add new cell to notebook using cell_id positioning
+        """Add new cell to notebook using flexible positioning
 
         Args:
             path: Path to notebook file
             cell_type: Type of cell ('code', 'markdown', or 'raw')
             source: Cell source code
             cell_id: Optional cell identifier (auto-generated if not provided)
-            below_cell_id: Cell id to insert after. If None, append to end.
+            position: Insertion position.
+                     - None: Append to end
+                     - "0", "1", "-1": Insert at specific index (0-based)
+                     - "cell_id": Insert AFTER the cell with this ID
             metadata: Optional cell metadata
 
         Returns:
             Minimal dict: {"success": bool, "cell_id": str, "file_path": str}
         """
-        logger.info(f"Adding {cell_type} cell to: {path}")
+        logger.info(f"Adding {cell_type} cell to: {path} at position: {position}")
 
         if cell_type not in ["code", "markdown", "raw"]:
             return {
@@ -405,19 +408,43 @@ class NotebookContentsToolSet(ToolSet):
                     return {"success": False, "error": "Failed to assign cell id"}
 
             # Determine insertion position
-            if below_cell_id is None:
+            cells = notebook.cells
+            
+            if position is None:
                 # Append to end
-                notebook.cells.append(new_cell)
+                cells.append(new_cell)
             else:
-                # Find target cell and insert after it
-                target_index, _ = self._find_cell(notebook, below_cell_id)
-                if target_index is None:
+                # Try to parse as integer index
+                try:
+                    # Check if string represents an integer
+                    if position.lstrip("-").isdigit():
+                        insert_index = int(position)
+                        # Handle negative index logic for insertion
+                        if insert_index < 0:
+                            insert_index = max(0, len(cells) + insert_index + 1)
+                        else:
+                            insert_index = min(len(cells), insert_index)
+                        
+                        cells.insert(insert_index, new_cell)
+                    else:
+                        # Treat as cell_id target
+                        target_id = position
+                        target_index, _ = self._find_cell(notebook, target_id)
+                        
+                        if target_index is None:
+                            return {
+                                "success": False,
+                                "error": f"Target cell with id '{target_id}' not found",
+                            }
+                        
+                        # Insert AFTER the target cell
+                        cells.insert(target_index + 1, new_cell)
+                        
+                except Exception as e:
                     return {
                         "success": False,
-                        "error": f"Target cell with id '{below_cell_id}' not found",
+                        "error": f"Failed to determine insertion position: {e}"
                     }
-                # Insert after target cell
-                notebook.cells.insert(target_index + 1, new_cell)
 
             # Save notebook
             save_result = await self._save_notebook(resolved_path, notebook)

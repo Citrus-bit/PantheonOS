@@ -493,7 +493,7 @@ class IntegratedNotebookToolSet(ToolSet):
         cell_type: str = "code",
         content: str = "",
         cell_id: Optional[str] = None,
-        below_cell_id: Optional[str] = None,
+        position: Optional[str] = None,
     ) -> dict:
         """
         Add a new cell to the notebook.
@@ -503,7 +503,10 @@ class IntegratedNotebookToolSet(ToolSet):
             cell_type: Type of cell: "code", "markdown", or "raw" (default: "code")
             content: Cell content/source code
             cell_id: Optional cell identifier (auto-generated if not provided)
-            below_cell_id: Optional cell ID to insert after (appends to end if not provided)
+            position: Insertion position.
+                     - None: Append to end
+                     - "0", "1", "-1": Insert at specific index (0-based)
+                     - "cell_id": Insert AFTER the cell with this ID
 
         Returns:
             dict with:
@@ -525,7 +528,7 @@ class IntegratedNotebookToolSet(ToolSet):
                 cell_type=cell_type,
                 source=content,
                 cell_id=cell_id,
-                below_cell_id=below_cell_id,
+                position=position,
             )
 
             # Add context information only if context exists
