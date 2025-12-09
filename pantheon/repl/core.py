@@ -745,6 +745,26 @@ class Repl(ReplUI):
         )
         self.console.print()
 
+    def _format_relative_time(self, iso_time: str | None) -> str:
+        """Format ISO time string to relative/friendly format."""
+        if not iso_time:
+            return "-"
+        try:
+            dt = datetime.fromisoformat(iso_time)
+            now = datetime.now()
+            diff = now - dt
+
+            if diff.days == 0:
+                return f"Today {dt.strftime('%H:%M')}"
+            elif diff.days == 1:
+                return f"Yesterday {dt.strftime('%H:%M')}"
+            elif diff.days < 7:
+                return dt.strftime("%a %H:%M")
+            else:
+                return dt.strftime("%b %d %H:%M")
+        except Exception:
+            return "-"
+
     async def _handle_list_chats(self):
         """List all chat sessions."""
         result = await self._chatroom.list_chats()
@@ -758,11 +778,27 @@ class Repl(ReplUI):
             if not chats:
                 self.console.print("[dim]No chats found[/dim]")
             else:
-                for chat in chats[:10]:  # Show last 10
-                    marker = "→ " if chat.get("chat_id") == self._chat_id else "  "
-                    name = chat.get("chat_name", "Unnamed")
-                    chat_id = chat.get("chat_id", "")[:8]
-                    self.console.print(f"[dim]{marker}[/dim][bold]{name}[/bold] [dim]({chat_id})[/dim]")
+                # Print header
+                self.console.print(
+                    f"[dim]  #   {'Name':<30} {'Last Activity':<18} ID[/dim]"
+                )
+                self.console.print(
+                    "[dim]  ─────────────────────────────────────────────────────────────────[/dim]"
+                )
+                # Print chats
+                for idx, chat in enumerate(chats[:10], 1):  # Show last 10
+                    marker = "→" if chat.get("id") == self._chat_id else " "
+                    name = chat.get("name", "Unnamed")
+                    # Truncate long names
+                    if len(name) > 28:
+                        name = name[:25] + "..."
+                    chat_id = chat.get("id", "")[:8]
+                    last_activity = self._format_relative_time(
+                        chat.get("last_activity_date")
+                    )
+                    self.console.print(
+                        f"[dim]{marker}[/dim] [cyan]{idx:<3}[/cyan] [bold]{name:<30}[/bold] [dim]{last_activity:<18}[/dim] [dim]{chat_id}[/dim]"
+                    )
             self.console.print()
         else:
             self.console.print(f"[red]Error listing chats: {result.get('message')}[/red]")
@@ -775,16 +811,16 @@ class Repl(ReplUI):
             chats = result.get("chats", [])
             found = None
             for chat in chats:
-                if chat.get("chat_id", "").startswith(chat_id) or chat.get(
-                    "chat_name", ""
+                if chat.get("id", "").startswith(chat_id) or chat.get(
+                    "name", ""
                 ).lower().startswith(chat_id.lower()):
                     found = chat
                     break
 
             if found:
-                self._chat_id = found["chat_id"]
+                self._chat_id = found["id"]
                 self.console.print(
-                    f"[green]✅ Switched to:[/green] {found.get('chat_name', self._chat_id)}"
+                    f"[green]✅ Switched to:[/green] {found.get('name', self._chat_id)}"
                 )
             else:
                 self.console.print(f"[red]Chat not found: {chat_id}[/red]")
