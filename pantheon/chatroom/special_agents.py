@@ -127,7 +127,6 @@ Guidelines:
 4. OUTPUT ONLY the summary text:
    - No preamble, no explanation, no meta-commentary
    - Just clean, usable context for the sub-agent""",
-                model="gpt-4o-mini",
             )
 
         prompt = f"""Please summarize the following conversation context for a sub-agent delegation.
@@ -204,7 +203,6 @@ Rules:
 3. Focus on clarification, follow-up details, or related exploration
 4. Keep questions concise and natural
 5. Return only the questions, one per line, without numbering or formatting""",
-                model="gpt-4o-mini",  # Use efficient model for suggestions
             )
 
             if not self._suggestion_agent:
@@ -407,7 +405,6 @@ class ChatNameGenerator:
             self._name_agent = Agent(
                 name="ChatNameGen",
                 instructions="Generate a 3-6 word chat title. Return only the title, no quotes or explanation.",
-                model="gpt-4o-mini",
             )
 
         # Build simple context (last 4 messages)
