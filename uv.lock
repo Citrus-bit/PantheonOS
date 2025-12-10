@@ -2791,6 +2791,24 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/65/be/757c8af63596453daaa42cc21be51aa42fc6b23cc9d4347784f99c8357b5/nats_py-2.11.0.tar.gz", hash = "sha256:fb1097db8b520bb4c8f5ad51340ca54d9fa54dbfc4ecc81c3625ef80994b6100", size = 114186, upload-time = "2025-07-22T08:41:08.589Z" }
 
 [[package]]
+name = "nats-server-bin"
+version = "2.12.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/07/c3/c1a4d3027d3bff90ac31bb39ff0d1941267bb4984bbafed2ee9eab023f8f/nats_server_bin-2.12.2.tar.gz", hash = "sha256:d1df50b89a69e5ca60a2e99da4ac79a8dabb29727d273086b13fc6fcbc014905", size = 2609852, upload-time = "2025-11-14T02:16:37.8Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/08/d8/8c7ca10b81fbebd54b01adfe1da08b9c2e665a097adc289e3b9c7fdf02a3/nats_server_bin-2.12.2-py3-none-android_33_arm64_v8a.whl", hash = "sha256:b3f1e63d6f0ec48bf290e35592e7de116acde2fb7f61cdf0774134b5c31db44d", size = 6126280, upload-time = "2025-11-14T02:16:17.059Z" },
+    { url = "https://files.pythonhosted.org/packages/b8/e4/e0c802ee147d5db8c0a73ba9f6e6bbe50ded249ad1b468987835c7eb0aa6/nats_server_bin-2.12.2-py3-none-macosx_12_0_arm64.whl", hash = "sha256:d7199f38aff63bb4744453dd9898ba4cc35d88cbdf05d648085f68a92a9531ca", size = 6022622, upload-time = "2025-11-14T02:16:19.398Z" },
+    { url = "https://files.pythonhosted.org/packages/ed/88/ca4de9fe386e763dbf15eb9a83f4836b3f8f65d0c665607d2dea0be2e707/nats_server_bin-2.12.2-py3-none-macosx_12_0_x86_64.whl", hash = "sha256:c0933947515073c4d00727b160144993a03196df5115b354434beaffa5617cfd", size = 6518001, upload-time = "2025-11-14T02:16:21.399Z" },
+    { url = "https://files.pythonhosted.org/packages/5b/dc/d54580fe56055cb113676605e9da2942a31797158aa280d1bf0db17381ac/nats_server_bin-2.12.2-py3-none-manylinux_2_28_aarch64.musllinux_1_2_aarch64.whl", hash = "sha256:13e732ade7de0bf7237b9bed5ec1a93956ec766b7b90d78981304c735a480159", size = 5855511, upload-time = "2025-11-14T02:16:23.486Z" },
+    { url = "https://files.pythonhosted.org/packages/bf/4c/296ae5f6010871b3ef88820a8bda1a5cb922758e97e43ef680d3c88f98e1/nats_server_bin-2.12.2-py3-none-manylinux_2_28_ppc64le.musllinux_1_2_ppc64le.whl", hash = "sha256:167a8ed2d9e6498217584fef78e4f6e0ca65d399a8afab5c4a1f96ffc6e09684", size = 5930878, upload-time = "2025-11-14T02:16:25.428Z" },
+    { url = "https://files.pythonhosted.org/packages/52/b4/a75cc5d5d5426b1b94ceb31fd9cd16a75836795c846d3741a9809de51285/nats_server_bin-2.12.2-py3-none-manylinux_2_28_riscv64.musllinux_1_2_riscv64.whl", hash = "sha256:4a584b67953c5e6248314c4e3699509332f72656abd90bb3861b0399fd551525", size = 6142456, upload-time = "2025-11-14T02:16:27.168Z" },
+    { url = "https://files.pythonhosted.org/packages/a5/fd/383e80d06e4258fa2e760af704a6a4f86a96034b78c794387a582f669609/nats_server_bin-2.12.2-py3-none-manylinux_2_28_s390x.musllinux_1_2_s390x.whl", hash = "sha256:12b5f9ddd41fc7ab9fb40a296721fdc22d7698468a62a781abf9f170bf6b5a34", size = 6432331, upload-time = "2025-11-14T02:16:28.816Z" },
+    { url = "https://files.pythonhosted.org/packages/1a/d3/ca486ce59a95d74f7876f664b34da76570c4b60f0cc549ce421876bbca2e/nats_server_bin-2.12.2-py3-none-manylinux_2_28_x86_64.musllinux_1_2_x86_64.whl", hash = "sha256:0612fc44e0a4074919fd2d5a3061dea11c6685c5001e068668a9c54d0dd7a81b", size = 6484047, upload-time = "2025-11-14T02:16:32.32Z" },
+    { url = "https://files.pythonhosted.org/packages/d6/86/385bc83f0f10e1fee7b75ab3aec7948c126ea9f026e5a3f71c8c5b2a6be1/nats_server_bin-2.12.2-py3-none-win_amd64.whl", hash = "sha256:2d6b256a66c75ed0eeb9f6d0d17a0772edb2824eced565a21c7d2f91def5d60b", size = 6632671, upload-time = "2025-11-14T02:16:34.343Z" },
+    { url = "https://files.pythonhosted.org/packages/d7/57/c88e882149462ce4add6edfc4153eb8e05c0d04a2cdfb10b0e0d6b4c0a63/nats_server_bin-2.12.2-py3-none-win_arm64.whl", hash = "sha256:02253169659ca987cabf395f7844fe36819d9f1799e79587e5c323d1ccf06c8f", size = 5928465, upload-time = "2025-11-14T02:16:36.047Z" },
+]
+
+[[package]]
 name = "nbclient"
 version = "0.10.2"
 source = { registry = "https://pypi.org/simple" }
@@ -3219,6 +3237,7 @@ dependencies = [
     { name = "nats-py" },
     { name = "openai" },
     { name = "pillow" },
+    { name = "prompt-toolkit" },
     { name = "python-frontmatter" },
     { name = "rich" },
     { name = "rich-pyfiglet" },
@@ -3241,6 +3260,9 @@ knowledge = [
     { name = "llama-index-vector-stores-qdrant" },
     { name = "nbconvert" },
     { name = "qdrant-client" },
+]
+server = [
+    { name = "nats-server-bin" },
 ]
 slack = [
     { name = "slack-bolt" },
@@ -3305,11 +3327,13 @@ requires-dist = [
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "matplotlib", marker = "extra == 'toolsets'", specifier = ">=3.10.3" },
     { name = "nats-py", specifier = ">=2.6.0" },
+    { name = "nats-server-bin", marker = "extra == 'server'", specifier = ">=2.10.0" },
     { name = "nbconvert", marker = "extra == 'knowledge'" },
     { name = "nbformat", marker = "extra == 'toolsets'", specifier = ">=5.10.0" },
     { name = "openai", specifier = ">=1.58.1" },
     { name = "pandas", marker = "extra == 'toolsets'" },
     { name = "pillow", specifier = ">=10.4.0" },
+    { name = "prompt-toolkit", specifier = ">=3.0.0" },
     { name = "pymupdf", marker = "extra == 'toolsets'", specifier = ">=1.25.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.4" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.25.0" },
@@ -3320,7 +3344,7 @@ requires-dist = [
     { name = "slack-bolt", marker = "extra == 'slack'" },
     { name = "slack-sdk", marker = "extra == 'slack'" },
 ]
-provides-extras = ["dev", "slack", "toolsets", "knowledge"]
+provides-extras = ["dev", "slack", "toolsets", "server", "knowledge"]
 
 [package.metadata.requires-dev]
 dev = [

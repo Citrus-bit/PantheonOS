@@ -14,7 +14,7 @@ from .renderers import (
     ToolCallRenderer,
     ToolResultRenderer,
 )
-
+from .utils import get_separator, format_tool_name, format_relative_time, CLAUDE_BOX, OutputAdapter, get_token_stats, render_token_panel
 # Simple readline support for history
 try:
     import readline
@@ -27,6 +27,10 @@ except ImportError:
 from rich_pyfiglet import RichFiglet
 
 
+from rich.columns import Columns
+from rich.table import Table
+from rich import box
+
 def print_banner(console: Console, text: str = "PANTHEON"):
     """Print ASCII banner with gradient colors"""
     rich_fig = RichFiglet(
@@ -36,6 +40,9 @@ def print_banner(console: Console, text: str = "PANTHEON"):
         horizontal=True,
     )
     console.print(rich_fig)
+    
+    # Add a thin separator line under the banner for style
+    console.print(Text("─" * 60, style="dim"))
 
 
 def print_agent_message_modern_style(
@@ -48,7 +55,11 @@ def print_agent_message_modern_style(
     """Print agent message in modern Claude Code style with minimal visual noise"""
 
     if console is None:
+        # Use simple Console if not provided (though verify calling code)
         console = Console()
+        
+    # Use output adapter if console is wrapper, or check context? 
+    # Actually print_agent_message_modern_style receives 'console', we assume it's correct.
 
     # Handle tool calls with minimal visual noise
     if tool_calls := message.get("tool_calls"):
@@ -85,11 +96,13 @@ def print_agent_message_modern_style(
             console.print(markdown)
 
 
-
 class ReplUI:
     """Presentation layer for REPL: printing, input, formatting."""
     def __init__(self):
-        self.console = Console()
+        # Output adapter for patch_stdout compatibility
+        self._output = OutputAdapter()
+        self.console = self._output._default_console
+        
         self.input_panel = Panel(Text("Type your message here...", style="dim"),
                                  title="Input", border_style="bright_blue")
         self._tools_executing = False
@@ -100,18 +113,33 @@ class ReplUI:
         self._current_agent_name: str | None = None
         self._last_printed_agent: str | None = None
         self._is_multi_agent: bool = False
+        
+        # Stats
+        self.message_count = 0
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+        self.session_start = datetime.now()
+        self.command_history = []
 
         # Display configuration and renderers
         self.display_config = DisplayConfig()
-        self.tool_call_renderer = ToolCallRenderer(self.console, self.display_config)
-        self.tool_result_renderer = ToolResultRenderer(self.console, self.display_config)
+        self._init_renderers()
+
+    @property
+    def output(self) -> OutputAdapter:
+        """Get the output adapter."""
+        return self._output
+
+    def _init_renderers(self):
+        """Initialize or reinitialize renderers with current console."""
+        self.tool_call_renderer = ToolCallRenderer(self.output.console, self.display_config)
+        self.tool_result_renderer = ToolResultRenderer(self.output.console, self.display_config)
 
     def set_display_mode(self, mode: DisplayMode):
         """Set display mode (compact/verbose)"""
         self.display_config.mode = mode
         # Recreate renderers with updated config
-        self.tool_call_renderer = ToolCallRenderer(self.console, self.display_config)
-        self.tool_result_renderer = ToolResultRenderer(self.console, self.display_config)
+        self._init_renderers()
 
     def _format_tool_name(self, tool_name: str) -> tuple[str, str]:
         """Format tool name for display.
@@ -259,51 +287,114 @@ class ReplUI:
         padding = line_width - len(title) - 3
         self.console.print(f"\n[bold cyan]┌ {title} {'─' * max(padding, 3)}[/bold cyan]")
 
-    def _print_greeting_team(self, team):
-        """Print team/agent info in greeting. Unified format for single and multi-agent."""
-        # Unified display format for all cases
-        self.console.print("[dim][bold blue]-- TEAM -------------------------------------------------------------[/bold blue][/dim]")
-        self.console.print()
-        for agent in team.agents.values():
-            agent_info = f"  - [bright_blue]{agent.name}[/bright_blue]"
-            # Show description first (more important)
-            if hasattr(agent, 'description') and agent.description:
-                agent_info += f"\n    [dim]{agent.description}[/dim]"
-            # Show model as secondary info
-            if hasattr(agent, 'models') and agent.models:
-                model = agent.models[0] if isinstance(agent.models, list) else agent.models
-                agent_info += f"\n    [dim]({model})[/dim]"
-            self.console.print(agent_info)
-        self.console.print()
+    def print_info_box(self, recent_chats=None):
+        """Print info box with 4 regions (Team, Session, Tokens, Help) in a 2x2 grid."""
+        
+        # 1. Team Info - Detailed Agent List
+        team = getattr(self, '_team', None) or getattr(self, 'team', None)
+        team_lines = ["[bold]Team[/bold]"]
+        if team and team.agents:
+            # Show up to 5 agents to prevent box from getting too tall
+            for idx, agent in enumerate(list(team.agents.values())[:5]):
+                model = getattr(agent, 'model', 'unknown')
+                if hasattr(agent, 'models'):
+                     models = agent.models
+                     if isinstance(models, list) and models:
+                         model = models[0]
+                     elif isinstance(models, str):
+                         model = models
+                
+                # Truncate model for display
+                if len(model) > 20:
+                    model = model[:17] + "..."
+                
+                team_lines.append(f"[dim]• {agent.name}[/dim] [dim italic]({model})[/]")
+            
+            if len(team.agents) > 5:
+                team_lines.append(f"[dim]+ {len(team.agents) - 5} more...[/dim]")
+        else:
+            team_lines.append("[dim]No agents loaded[/dim]")
+        team_text = "\n".join(team_lines)
+
+        # 2. Session Info - Recent Sessions List
+        session_lines = ["[bold]Sessions[/bold]"]
+        if recent_chats:
+            # Show top 5 recent chats
+            for chat in recent_chats[:5]:
+                name = chat.get("name", "Unnamed")
+                if len(name) > 20:
+                    name = name[:17] + "..."
+                
+                # Simple relative time
+                last_activity = chat.get("last_activity_date")
+                time_str = format_relative_time(last_activity)
+                
+                marker = "→" if chat.get("id") == self._chat_id else " " # _chat_id is on Repl, accessed via self if Repl inherits
+                
+                session_lines.append(f"[dim]{marker} {name}[/dim] [dim italic]({time_str})[/]")
+        else:
+            msg_count = getattr(self, 'message_count', 0)
+            session_duration = datetime.now() - self.session_start
+            duration_mins = int(session_duration.total_seconds() / 60)
+            session_lines.append(f"[dim]Current: {duration_mins}m, {msg_count} msgs[/dim]")
+            session_lines.append("[dim]No history loaded[/dim]")
+        
+        session_text = "\n".join(session_lines)
+
+        # 3. Token Info
+        total_tokens = self.total_input_tokens + self.total_output_tokens
+        # Vertical stack: Usage -> Total -> (Input/Output could be added if needed, but keeping simple for now)
+        token_text = f"[bold]Usage[/bold]\n[dim]{self._format_token_count(total_tokens)} tokens\n(Total)[/dim]"
+        
+        # 4. Help Info
+        # Vertical stack: Controls -> /help -> exit
+        help_text = "[bold]Controls[/bold]\n[dim]/help\nCtrl+C to exit[/dim]"
+
+        # Create Table (2x2 grid)
+        # Create table with Claude style (border separated from content lines)
+        table = Table(
+            show_header=False,
+            box=CLAUDE_BOX,
+            border_style="blue",
+            expand=True,
+            show_lines=True, # Show internal lines (horizontal separators)
+            padding=(0, 2),
+            collapse_padding=True,
+        )
+
+        # define columns with equal ratio
+        table.add_column(ratio=1)
+        table.add_column(ratio=1)
+
+        # Add rows (2x2)
+        table.add_row(team_text, session_text)
+        table.add_row(token_text, help_text)
+        
+        self.console.print(table)
 
     async def print_greeting(self):
         self.console.print("[purple]Aristotle © 2025[/purple]")
         print_banner(self.console)
         self.console.print()
-        self.console.print(
-            "[bold italic]We're not just building another CLI tool.[/bold italic]\n" +
-            "[bold italic purple]We're redefining how scientists interact with data in the AI era.\n[/bold italic purple]"
-            "[bold italic dim]Pantheon-CLI is a research project, use with caution.[/bold italic dim]"
-        )
-        self.console.print()
+        
+        # Fetch recent chats if available (via Repl mixin)
+        recent_chats = []
+        chatroom = getattr(self, '_chatroom', None)
+        if chatroom:
+            try:
+                result = await chatroom.list_chats()
+                if result.get("success"):
+                    recent_chats = result.get("chats", [])
+            except Exception:
+                pass
 
-        # Always use team (single agent is wrapped in PantheonTeam)
-        if hasattr(self, '_team') and self._team:
-            self._print_greeting_team(self._team)
-        elif hasattr(self, 'team') and self.team:
-            self._print_greeting_team(self.team)
-
+        # Print modern Info Box
+        self.print_info_box(recent_chats=recent_chats)
+        
         self.console.print()
-        self.console.print("[dim][bold blue]-- HELP -------------------------------------------------------------[/bold blue][/dim]")
-        self.console.print()
-        self.console.print("[dim]  • [bold purple]/exit   [/bold purple] to quit[/dim]")
-        self.console.print("[dim]  • [bold purple]/help   [/bold purple] for commands[/dim]")
         if READLINE_AVAILABLE:
-            self.console.print()
-            self.console.print("[dim][bold blue]-- CONTROL ----------------------------------------------------------[/bold blue][/dim]")
-            self.console.print()
             self.console.print("[dim]Use ↑/↓ arrows for command history[/dim]")
-        self.console.print()
+        # self.console.print() # Removed duplicate newline
 
     # --- Input ---
     def ask_user_input(self) -> str:
@@ -398,50 +489,26 @@ class ReplUI:
         self.console.print()
 
     def _print_token_analysis(self):
-        """Print detailed token usage analysis"""
-        total_tokens = self.total_input_tokens + self.total_output_tokens
-        #self.console.print(f"\n[bold]Token Analysis[/bold]")
-        self.console.print()
-        self.console.print("[dim][bold blue]-- TOKENS -----------------------------------------------------------[/bold blue][/dim]")
-        self.console.print()
+        """Print detailed token usage analysis with Claude Code-style UI."""
+        # Gather data from chatroom/team
+        chatroom = getattr(self, '_chatroom', None)
+        chat_id = getattr(self, '_chat_id', None)
+        team = getattr(self, '_team', None) or getattr(self, 'team', None)
+        
+        # Fallback stats from local tracking
+        fallback_stats = {
+            "total_input_tokens": self.total_input_tokens,
+            "total_output_tokens": self.total_output_tokens,
+            "message_count": self.message_count,
+        }
+        
+        # Get token stats using utility
+        token_info = get_token_stats(chatroom, chat_id, team, fallback_stats)
+        
+        # Render the panel
+        render_token_panel(self.output.console, token_info, self.session_start)
 
-        if total_tokens == 0:
-            self.console.print("\n[dim]No token usage data yet[/dim]\n")
-            return
 
-        # Basic stats
-        self.console.print(f"[dim]  • Total:[/dim] {self._format_token_count(total_tokens)} tokens")
-        self.console.print(f"[dim]  • Input: [/dim] {self._format_token_count(self.total_input_tokens)} ({self.total_input_tokens/total_tokens*100:.1f}%)")
-        self.console.print(f"[dim]  • Output: [/dim] {self._format_token_count(self.total_output_tokens)} ({self.total_output_tokens/total_tokens*100:.1f}%)")
-        self.console.print()
-
-        # Efficiency metrics
-        if self.message_count > 0:
-            avg_total = total_tokens / self.message_count
-            avg_input = self.total_input_tokens / self.message_count
-            avg_output = self.total_output_tokens / self.message_count
-
-            #self.console.print(f"\n[bold]Per Message Average:[/bold]")
-            self.console.print("[dim][bold blue]-- PER MSG/AVG ------------------------------------------------------[/bold blue][/dim]")
-            self.console.print()
-            self.console.print(f"[dim]  • Total:[/dim] {self._format_token_count(int(avg_total))}")
-            self.console.print(f"[dim]  • Input:[/dim] {self._format_token_count(int(avg_input))}")
-            self.console.print(f"[dim]  • Output:[/dim] {self._format_token_count(int(avg_output))}")
-            self.console.print()
-        # Usage recommendations
-        #self.console.print(f"\n[bold]Tips:[/bold]")
-        self.console.print("[dim][bold blue]-- TIPS --------------------------------------------------------------[/bold blue][/dim]")
-        self.console.print()
-        if avg_input > 1000:
-            self.console.print("[dim]  • Consider shorter prompts to reduce input tokens[/dim]")
-        if self.total_output_tokens / max(1, self.total_input_tokens) > 3:
-            self.console.print("[dim]  • High output ratio - responses are verbose[/dim]")
-        if self.message_count > 5 and avg_total < 100:
-            self.console.print("[dim]  • Efficient usage - good token management[/dim]")
-        elif avg_total > 2000:
-            self.console.print("[dim]  • High token usage - consider optimizing prompts[/dim]")
-
-        self.console.print()
 
     def _print_status(self):
         """Print current session status"""

@@ -9,8 +9,18 @@ if TYPE_CHECKING:
 class CommandHandler(ABC):
     """Base class for command handlers."""
     def __init__(self, console: Console, parent: "Repl"):
-        self.console = console
+        self._console = console  # Keep original for fallback
         self.parent = parent
+
+    @property
+    def console(self) -> Console:
+        """Get context-aware console from parent's OutputAdapter.
+        
+        This ensures command output works correctly inside patch_stdout context.
+        """
+        if self.parent and hasattr(self.parent, 'output'):
+            return self.parent.output.console
+        return self._console
 
     @property
     def team(self):
