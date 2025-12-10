@@ -8,6 +8,13 @@ import json
 import asyncio
 from datetime import datetime
 
+from .renderers import (
+    DisplayMode,
+    DisplayConfig,
+    ToolCallRenderer,
+    ToolResultRenderer,
+)
+
 # Simple readline support for history
 try:
     import readline
@@ -93,6 +100,18 @@ class ReplUI:
         self._current_agent_name: str | None = None
         self._last_printed_agent: str | None = None
         self._is_multi_agent: bool = False
+
+        # Display configuration and renderers
+        self.display_config = DisplayConfig()
+        self.tool_call_renderer = ToolCallRenderer(self.console, self.display_config)
+        self.tool_result_renderer = ToolResultRenderer(self.console, self.display_config)
+
+    def set_display_mode(self, mode: DisplayMode):
+        """Set display mode (compact/verbose)"""
+        self.display_config.mode = mode
+        # Recreate renderers with updated config
+        self.tool_call_renderer = ToolCallRenderer(self.console, self.display_config)
+        self.tool_result_renderer = ToolResultRenderer(self.console, self.display_config)
 
     def _format_tool_name(self, tool_name: str) -> tuple[str, str]:
         """Format tool name for display.
@@ -346,6 +365,12 @@ class ReplUI:
         self.console.print("[dim][bold purple]/agent   [/bold purple][/dim] - Switch to agent (by name or number)")
         self.console.print()
 
+        self.console.print("[dim][bold blue]-- DISPLAY ----------------------------------------------------------[/bold blue][/dim]")
+        self.console.print()
+        self.console.print("[dim][bold purple]/verbose [/bold purple][/dim] - Show all details (code, files, output)")
+        self.console.print("[dim][bold purple]/compact [/bold purple][/dim] - Truncated output (default)")
+        self.console.print()
+
         if READLINE_AVAILABLE:
             self.console.print("[dim][bold blue]-- NAVIGATION -------------------------------------------------------[/bold blue][/dim]")
             self.console.print()
@@ -584,225 +609,54 @@ class ReplUI:
             return f"```\n{str(output)}\n```"
 
     def print_tool_call(self, tool_name: str, args: dict = None):
-        """Print tool call in Claude Code style with fancy boxes"""
+        """Print tool call with enhanced rendering"""
         # Mark that tools are executing
         self._tools_executing = True
         # Set current tool name for progress display
         self._current_tool_name = tool_name
 
-
-        # Record tool call in conversation history
-        metadata = {"tool_name": tool_name}
-        if args:
-            metadata.update(args)
-
-        # Generate terminal display content for saving
-        terminal_display_lines = []
-        if tool_name in ["run_command", "run_command_in_shell"] and args and 'command' in args:
-            # Capture bash command display
-            command = args['command']
-            if self._should_display_bash_in_box(command):
-                terminal_display_lines.append("⏺ Bash")
-                header_title = self._get_bash_command_title(command)
-                wrapped_lines = self._wrap_bash_command(command, max_width=71)
-
-                terminal_display_lines.append("╭" + "─" * 77 + "╮")
-                terminal_display_lines.append(f"│ {header_title}" + " " * (77 - len(header_title) - 4) + "   │")
-                terminal_display_lines.append("│ ╭" + "─" * 73 + "╮ │")
-
-                for line in wrapped_lines[:20]:  # Limit display
-                    terminal_display_lines.append(f"│ │ {line.ljust(71)} │ │")
-
-                terminal_display_lines.append("│ ╰" + "─" * 73 + "╯ │")
-                terminal_display_lines.append("╰" + "─" * 77 + "╯")
-
-                metadata["terminal_display"] = "\n".join(terminal_display_lines)
-            else:
-                metadata["terminal_display"] = f"⏺ Bash({command})"
-
         self.console.print()  # Add some space
 
-        # Claude Code style tool call display
-        if tool_name in ["run_command", "run_command_in_shell"] and args and 'command' in args:
-            # Shell command execution
-            command = args['command']
-
-            # Check if this command should be displayed in a code box
-            should_use_code_box = self._should_display_bash_in_box(command)
-
-            if should_use_code_box:
-                # Display complex bash commands in a code box (similar to Python)
-                self.console.print("⏺ [bold]Bash[/bold]")
-                header_title = self._get_bash_command_title(command)
-
-                # Wrap the command for better display
-                wrapped_lines = self._wrap_bash_command(command, max_width=71)
-
-                self.console.print("╭" + "─" * 77 + "╮")
-                title_padding = " " * (77 - len(header_title) - 4)
-                self.console.print(f"│ [bold]{header_title}[/bold]{title_padding}   │")
-                self.console.print("│ ╭" + "─" * 73 + "╮ │")
-
-                # Limit display lines (show first 10 + last 10 if > 20 lines)
-                max_display_lines = 20
-                if len(wrapped_lines) <= max_display_lines:
-                    display_lines = wrapped_lines
-                else:
-                    first_lines = wrapped_lines[:10]
-                    last_lines = wrapped_lines[-10:]
-                    # Calculate actual hidden lines
-                    hidden_count = len(wrapped_lines) - 20
-                    display_lines = first_lines + [f"... ({hidden_count} more lines) ..."] + last_lines
-
-                for line in display_lines:
-                    # Lines are already wrapped to fit, just pad them
-                    padded_line = line.ljust(71)
-                    self.console.print(f"│ │ {padded_line} │ │")
-
-                self.console.print("│ ╰" + "─" * 73 + "╯ │")
-                self.console.print("╰" + "─" * 77 + "╯")
-            else:
-                # Simple commands use the original format
-                self.console.print(f"⏺ [bold]Bash[/bold]({command})")
-
-        else:
-            # Generic tool call - format tool name
-            formatted_name, raw_name = self._format_tool_name(tool_name)
-
-            if args:
-                # Try to show the most relevant argument
-                key_arg = None
-                if 'file_path' in args:
-                    key_arg = f"[dim]file_path=[/dim]'{args['file_path']}'"
-                elif 'pattern' in args:
-                    key_arg = f"[dim]pattern=[/dim]'{args['pattern']}'"
-                elif 'query' in args:
-                    key_arg = f"[dim]query=[/dim]'{args['query'][:50]}...'" if len(str(args['query'])) > 50 else f"[dim]query=[/dim]'{args['query']}'"
-                elif 'code' in args:
-                    # Display code for run_python and run_r tools
-                    code_lines = str(args['code']).strip().split('\n')
-                    if len(code_lines) == 1 and len(code_lines[0]) <= 60:
-                        key_arg = f"[dim]code=[/dim]'{code_lines[0]}'"
-                    elif len(code_lines) <= 3 and all(len(line) <= 50 for line in code_lines):
-                        code_preview = '; '.join(line.strip() for line in code_lines)
-                        key_arg = f"[dim]code=[/dim]'{code_preview[:70]}...'" if len(code_preview) > 70 else f"[dim]code=[/dim]'{code_preview}'"
-                    else:
-                        first_line = code_lines[0][:50]
-                        key_arg = f"[dim]code=[/dim]'{first_line}... ({len(code_lines)} lines)'"
-                elif tool_name == "use_workflow":
-                    key_arg = ", ".join([f"[dim]{k}=[/dim]'{v}'" for k, v in args.items()])
-
-                if key_arg:
-                    self.console.print(f"⏺ {formatted_name}({key_arg})")
-                else:
-                    self.console.print(f"⏺ {formatted_name}([dim]...[/dim])")
-            else:
-                self.console.print(f"⏺ {formatted_name}()")
+        # Use new renderer for enhanced display
+        self.tool_call_renderer.render(tool_name, args or {})
 
         self.console.print()  # Add space after tool call
 
     def print_tool_result(self, tool_name: str, result: dict):
-        """Print tool result in Claude Code style with diff support"""
-
+        """Print tool result with enhanced rendering"""
         # Mark that tool execution is complete
         self._tools_executing = False
         # Clear current tool name since execution is done
         self._current_tool_name = None
 
-        # Record tool result in conversation history with full result data
-        result_content = ""
-        terminal_display = ""
+        # Use new renderer for enhanced display
+        rendered = self.tool_result_renderer.render(tool_name, result)
 
-        if isinstance(result, dict):
-            # Store the full result dict for proper formatting
-            if 'stdout' in result:
-                result_content = result['stdout']
-            elif 'output' in result:
-                result_content = result['output']
-            elif 'result' in result:
-                result_content = str(result['result'])
-            else:
-                result_content = str(result)
+        if not rendered:
+            # Fallback for unhandled tools
+            self._print_tool_result_fallback(tool_name, result)
 
-            # Capture the actual terminal display format
-            if tool_name in ['run_python_code', 'run_julia_code', 'run_r_code', 'run_command', 'run_command_in_shell', 'bash']:
-                # For code execution, preserve the full output structure
-                terminal_display = str(result)
-        else:
-            result_content = str(result)
+        self.console.print()  # Add space after result
 
-        metadata = {"tool_name": tool_name}
-        if terminal_display:
-            metadata["terminal_display"] = terminal_display
-        metadata["full_result"] = result  # Store the complete result for formatting
-
-        # Also capture what would appear in the terminal output box
-        if isinstance(result, dict) and 'output' in result:
-            output = result['output']
-        elif isinstance(result, dict) and 'result' in result:
-            output = result['result']
-        else:
-            output = str(result)
-
-        if output and output.strip():
-            metadata["actual_terminal_output"] = output
-
-        # Special handling for toolsets that print their own output - skip normal output box
-        skip_tools = ['edit', 'write', 'read', 'file', 'glob', 'grep', 'ls', 'notebook', 'update_todo_status',
+    def _print_tool_result_fallback(self, tool_name: str, result: dict):
+        """Fallback result rendering for unhandled tools"""
+        # Skip tools that handle their own output
+        skip_tools = ['edit', 'glob', 'grep', 'ls', 'notebook', 'update_todo_status',
                      'add_todo', 'mark_task_done', 'complete_current_todo', 'work_on_next_todo']
         if any(tool in tool_name.lower() for tool in skip_tools) and isinstance(result, dict):
             if result.get('success'):
-                # For successful operations, don't show any output box
-                # The content was already printed by the toolset
                 return
 
-
-        # Show tool output in Claude Code style
-        if isinstance(result, dict) and 'output' in result:
-            output = result['output']
-        elif isinstance(result, dict) and 'result' in result:
-            output = result['result']
-        else:
-            output = str(result)
-
-        if output and output.strip():
-            # Check if this is a bash command output (should be multi-line)
-            # vs other tool outputs (should be single line)
-            is_bash_output = tool_name.lower() in ['run_command', 'run_command_in_shell', 'bash']
-
-            if is_bash_output:
-                # Compact single-line display for bash command outputs
-                # Handle escaped characters in output
-                processed_output = output.replace('\\n', '\n').replace('\\t', '\t')
-                lines = processed_output.strip().split('\n')
-
-                # Create summary for multi-line output
-                if len(lines) > 1:
-                    # Show first line with line count
-                    first_line = lines[0][:60].strip()
-                    if len(lines[0]) > 60:
-                        first_line += "..."
-                    summary = f"{first_line} ({len(lines)} lines)"
-                else:
-                    # Single line, truncate if too long
-                    summary = lines[0][:70] + ("..." if len(lines[0]) > 70 else "")
-
-                # Compact output format similar to Update() style
-                self.console.print(f"Output")
-                self.console.print(f"  ⎿  {summary}")
-                self.console.print()  # Add space after output
-            else:
-                # Compact single-line display for other tool outputs
-                # Truncate very long outputs to single line
-                if len(output) > 70:
-                    truncated_output = output[:70] + "..."
-                else:
-                    truncated_output = output
-
-                # Compact output format similar to Update() style
-                self.console.print(f"Output")
-                self.console.print(f"  ⎿  {truncated_output}")
-                self.console.print()  # Add space after output
+        # Simple rendering for unhandled tools
+        if isinstance(result, dict):
+            if result.get("success"):
+                self.console.print("[green]✓[/green] Success")
+            output = result.get("output") or result.get("result")
+            if output:
+                output_str = str(output)
+                if len(output_str) > 200:
+                    output_str = output_str[:200] + "..."
+                self.console.print(f"  ⎿  {output_str}")
 
     async def print_message(self):
         """Enhanced message handler with Claude Code style formatting"""
@@ -852,15 +706,32 @@ class ReplUI:
                     tool_name = message.get("tool_name", "")
                     content = message.get("content", "")
 
-                    # Show tool results in Claude Code style
+                    # Prefer raw_content if available (original dict, not repr string)
+                    raw_content = message.get("raw_content")
+                    if raw_content is not None and isinstance(raw_content, dict):
+                        self.print_tool_result(tool_name, raw_content)
+                        continue
+
+                    # Try to parse content as structured result
                     try:
-                        # Try to parse as JSON for structured results
+                        # Try JSON first
                         result = json.loads(content)
                         self.print_tool_result(tool_name, result)
+                    except json.JSONDecodeError:
+                        # Try ast.literal_eval for repr() output (uses single quotes)
+                        try:
+                            import ast
+                            result = ast.literal_eval(content)
+                            if isinstance(result, dict):
+                                self.print_tool_result(tool_name, result)
+                            else:
+                                self.print_tool_result(tool_name, {"output": str(result)})
+                        except Exception:
+                            # Final fallback: plain text
+                            if content.strip():
+                                self.print_tool_result(tool_name, {"output": content})
                     except Exception:
-                        # Fallback for plain text results
                         if content.strip():
-                            # Create a simple output display for non-JSON results
                             self.print_tool_result(tool_name, {"output": content})
                     continue
 

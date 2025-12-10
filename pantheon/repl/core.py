@@ -27,6 +27,7 @@ from ..team.pantheon import PantheonTeam
 from ..chatroom import ChatRoom
 from ..constant import CLI_HISTORY_FILE
 from .ui import ReplUI
+from .renderers import DisplayMode
 from .handlers.base import CommandHandler
 from .handlers.template_handler import TemplateHandler, load_template
 from .handlers.builtin.bash import BashCommandHandler
@@ -436,6 +437,24 @@ class Repl(ReplUI):
                 current_message = None
                 continue
 
+            # Verbose mode command
+            elif cmd_lower in ["/verbose", "/v"]:
+                self.set_display_mode(DisplayMode.VERBOSE)
+                self.console.print("[green]✓[/green] Switched to [bold]verbose[/bold] mode")
+                self.console.print("[dim]  All code, file content, and tool details will be shown[/dim]")
+                self.console.print()
+                current_message = None
+                continue
+
+            # Compact mode command
+            elif cmd_lower in ["/compact", "/c"]:
+                self.set_display_mode(DisplayMode.COMPACT)
+                self.console.print("[green]✓[/green] Switched to [bold]compact[/bold] mode")
+                self.console.print("[dim]  Output will be truncated for readability[/dim]")
+                self.console.print()
+                current_message = None
+                continue
+
             # Custom command handlers
             continue_flag = False
             for handler in self.handlers:
@@ -648,13 +667,32 @@ class Repl(ReplUI):
                     elif step.get("role") == "tool":
                         tool_name = step.get("tool_name", "")
                         content = step.get("content", "")
-                        try:
-                            import json
-                            result = json.loads(content)
-                            self.print_tool_result(tool_name, result)
-                        except Exception:
-                            if content.strip():
-                                self.print_tool_result(tool_name, {"output": content})
+
+                        # Prefer raw_content if available (original dict)
+                        raw_content = step.get("raw_content")
+                        if raw_content is not None and isinstance(raw_content, dict):
+                            self.print_tool_result(tool_name, raw_content)
+                        else:
+                            # Try to parse content
+                            try:
+                                import json
+                                result = json.loads(content)
+                                self.print_tool_result(tool_name, result)
+                            except json.JSONDecodeError:
+                                # Try ast.literal_eval for repr() output
+                                try:
+                                    import ast
+                                    result = ast.literal_eval(content)
+                                    if isinstance(result, dict):
+                                        self.print_tool_result(tool_name, result)
+                                    else:
+                                        self.print_tool_result(tool_name, {"output": str(result)})
+                                except Exception:
+                                    if content.strip():
+                                        self.print_tool_result(tool_name, {"output": content})
+                            except Exception:
+                                if content.strip():
+                                    self.print_tool_result(tool_name, {"output": content})
 
                 self._current_live_display = processing_live
 
