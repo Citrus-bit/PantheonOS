@@ -9,9 +9,11 @@ This module provides a prompt_toolkit-based input session with:
 - Merged command completer logic
 """
 
+import re
 import sys
 import time
 import asyncio
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from prompt_toolkit import Application
@@ -31,15 +33,19 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.formatted_text import HTML
 
 from .utils import get_animation_frames, get_separator, get_wave_color
+from ..constant import FILE_COMPLETION_IGNORED, PROJECT_ROOT
 
 if TYPE_CHECKING:
     from .core import Repl
 
 
 class ReplCompleter(Completer):
-    """Completer that provides completions for REPL commands.
-    
-    Supports both built-in commands and custom handler commands.
+    """Completer that provides completions for REPL commands and file paths.
+
+    Supports:
+    - Built-in commands starting with /
+    - Custom handler commands
+    - File path completions starting with @
     """
     
     # Built-in commands (sync with core.py run() command handling)
@@ -77,29 +83,34 @@ class ReplCompleter(Completer):
     
     def get_completions(self, document, complete_event):
         """Generate completions for the current input.
-        
+
         Args:
             document: The current document being edited.
             complete_event: Information about how completion was triggered.
-            
+
         Yields:
-            Completion objects for matching commands.
+            Completion objects for matching commands or file paths.
         """
         text = document.text_before_cursor.lstrip()
-        
-        # Only complete if starting with /
+
+        # File path completion: triggered by @
+        if '@' in text:
+            yield from self._get_file_completions(document)
+            return
+
+        # Command completion: starts with /
         if not text.startswith('/'):
             return
-        
+
         # Built-in command completions
         for cmd, desc in self.BUILTIN_COMMANDS:
             if cmd.startswith(text):
                 yield Completion(
-                    cmd, 
-                    start_position=-len(text), 
+                    cmd,
+                    start_position=-len(text),
                     display_meta=desc
                 )
-        
+
         # Custom handler command completions
         if self.repl and hasattr(self.repl, 'handlers'):
             for handler in self.repl.handlers:
@@ -107,10 +118,94 @@ class ReplCompleter(Completer):
                     for cmd, desc in handler.get_commands():
                         if cmd.startswith(text):
                             yield Completion(
-                                cmd, 
-                                start_position=-len(text), 
+                                cmd,
+                                start_position=-len(text),
                                 display_meta=desc
                             )
+
+    def _get_file_completions(self, document):
+        """Generate file path completions for @ mentions."""
+        text = document.text_before_cursor
+
+        # Find the last @ position
+        at_pos = text.rfind('@')
+        if at_pos == -1:
+            return
+
+        # Extract path prefix after @
+        path_prefix = text[at_pos + 1:]
+        start_position = -(len(path_prefix) + 1)  # Include @
+
+        # Get workspace directory
+        workspace = self._get_workspace()
+
+        # Parse path: separate directory and filename prefix
+        if '/' in path_prefix:
+            dir_part, name_prefix = path_prefix.rsplit('/', 1)
+            search_dir = workspace / dir_part
+        else:
+            dir_part, name_prefix = "", path_prefix
+            search_dir = workspace
+
+        if not search_dir.exists() or not search_dir.is_dir():
+            return
+
+        # List and filter files
+        try:
+            entries = sorted(
+                search_dir.iterdir(),
+                key=lambda p: (not p.is_dir(), p.name.lower())
+            )
+        except PermissionError:
+            return
+
+        for entry in entries:
+            # Only filter ignored directories (keep hidden files like .env)
+            if entry.name in FILE_COMPLETION_IGNORED:
+                continue
+
+            # Prefix match (case-insensitive)
+            if not entry.name.lower().startswith(name_prefix.lower()):
+                continue
+
+            # Build completion path
+            rel_path = f"{dir_part}/{entry.name}" if dir_part else entry.name
+
+            if entry.is_dir():
+                yield Completion(
+                    f"@{rel_path}/",
+                    start_position=start_position,
+                    display=f"{entry.name}/",
+                    display_meta="dir"
+                )
+            else:
+                yield Completion(
+                    f"@{rel_path}",
+                    start_position=start_position,
+                    display=entry.name,
+                    display_meta=self._get_file_type(entry)
+                )
+
+    def _get_workspace(self) -> Path:
+        """Get workspace path from repl or fallback to PROJECT_ROOT."""
+        if self.repl:
+            try:
+                endpoint = self.repl._chatroom._endpoint
+                if endpoint and hasattr(endpoint, 'path'):
+                    return endpoint.path
+            except AttributeError:
+                pass
+        return PROJECT_ROOT
+
+    def _get_file_type(self, path: Path) -> str:
+        """Get file type description based on extension."""
+        ext_map = {
+            '.py': 'py', '.js': 'js', '.ts': 'ts', '.tsx': 'tsx',
+            '.md': 'md', '.json': 'json', '.yaml': 'yaml', '.yml': 'yaml',
+            '.toml': 'toml', '.txt': 'txt', '.sh': 'sh', '.css': 'css',
+            '.html': 'html', '.sql': 'sql', '.rs': 'rs', '.go': 'go',
+        }
+        return ext_map.get(path.suffix.lower(), 'file')
 
 
 def create_key_bindings(app_instance: "PantheonInputApp") -> KeyBindings:
@@ -154,11 +249,20 @@ def create_key_bindings(app_instance: "PantheonInputApp") -> KeyBindings:
 
     @kb.add('enter')
     def _(event):
-        """Enter to submit."""
+        """Enter to submit or accept completion."""
         buffer = event.current_buffer
+
+        # If completion menu is open, accept the selected completion
+        if buffer.complete_state:
+            completion = buffer.complete_state.current_completion
+            if completion:
+                buffer.apply_completion(completion)
+            return
+
+        # Otherwise submit the input
         text = buffer.text
         if text.strip():
-             app_instance.accept_input(buffer)
+            app_instance.accept_input(buffer)
 
     # Condition: check if processing
     is_processing = Condition(lambda: getattr(app_instance, '_is_processing', False))
@@ -372,12 +476,12 @@ class PantheonInputApp:
     def accept_input(self, buffer: Buffer):
         """Handle input submission from TextArea."""
         text = buffer.text
-        
-        # Add to history (TextArea handles file history automatically on submit usually, 
+
+        # Add to history (TextArea handles file history automatically on submit usually,
         # but since we manual handle Enter, we should optimize)
         buffer.append_to_history()
-        
-        # Print to stdout so it appears in scrollback
+
+        # Print to stdout so it appears in scrollback (show original text with @)
         # We must use print WITHOUT redirecting to the app buffer, so use proper stdout
         # But we are likely inside patch_stdout, so standard print works well to put text 'above'
         # Format: "> message" with light gray background (ANSI 256-color: 238)
@@ -387,12 +491,44 @@ class PantheonInputApp:
         lines = text.split('\n')
         formatted_lines = [f"{bg_color}> {line}{reset}" for line in lines]
         print("\n" + "\n".join(formatted_lines))
-        
+
+        # Expand @path mentions to absolute paths before sending to agent
+        text = self._expand_file_mentions(text)
+
         # Put into queue
         self.message_queue.put_nowait(text)
-        
+
         # Reset buffer
         buffer.reset()
+
+    def _expand_file_mentions(self, text: str) -> str:
+        """Convert @relative/path to '/absolute/path' in text."""
+        workspace = self._get_workspace()
+
+        # Pattern: @ followed by a path (not starting with /)
+        # Match @word or @path/to/file but not @/absolute/path
+        pattern = r'@(?!/)([\w./\-]+)'
+
+        def replace_path(match):
+            rel_path = match.group(1)
+            abs_path = (workspace / rel_path).resolve()
+            if abs_path.exists():
+                return f"'{abs_path}'"
+            # Keep original if path doesn't exist
+            return match.group(0)
+
+        return re.sub(pattern, replace_path, text)
+
+    def _get_workspace(self) -> Path:
+        """Get workspace path from repl or fallback to PROJECT_ROOT."""
+        if self.repl:
+            try:
+                endpoint = self.repl._chatroom._endpoint
+                if endpoint and hasattr(endpoint, 'path'):
+                    return endpoint.path
+            except AttributeError:
+                pass
+        return PROJECT_ROOT
     
     async def run_async(self):
         """Run the application asynchronously."""

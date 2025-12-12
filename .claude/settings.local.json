@@ -5,7 +5,9 @@
       "Bash(dir:*)",
       "Bash(python -m py_compile:*)",
       "Bash(git show:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(find:*)",
+      "Bash(python3:*)"
     ],
     "deny": [],
     "ask": []

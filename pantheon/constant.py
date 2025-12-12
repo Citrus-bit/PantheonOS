@@ -15,3 +15,17 @@ PANTHEON_DIR = os.path.realpath(
 )
 CONFIG_FILE = os.path.join(PANTHEON_DIR, "config.yaml")
 CLI_HISTORY_FILE = os.path.join(PANTHEON_DIR, "cli_history")
+
+# Directories to ignore for file path completion (hidden files like .env are kept)
+FILE_COMPLETION_IGNORED = {
+    # Version control
+    ".git", ".svn", ".hg",
+    # Python
+    "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+    # Node.js
+    "node_modules",
+    # Build output
+    "dist", "build",
+    # Pantheon
+    ".pantheon", ".endpoint-logs", ".executor",
+}
