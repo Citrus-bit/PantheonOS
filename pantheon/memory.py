@@ -55,6 +55,7 @@ class Memory:
                     "extra_data": self.extra_data,
                 },
                 f,
+                indent=4,
             )
 
     @classmethod
@@ -90,29 +91,72 @@ class Memory:
         messages = process_messages_for_store(messages)
         self._messages.extend(messages)
 
-    def get_messages(self, execution_context_id=_ALL_CONTEXTS):
+    def get_messages(self, execution_context_id=_ALL_CONTEXTS, for_llm: bool = True) -> list[dict]:
         """
         Get the messages from the memory.
+
+        Args:
+            execution_context_id: Filter by execution context ID.
+            for_llm: If True, applies processing for LLM consumption:
+                     - Excludes internal system messages
+                     - Handles compression truncation
+                     - Normalizes compression messages to user role
 
         Returns:
             The messages from the memory.
         """
         if execution_context_id is _ALL_CONTEXTS:
-            return list(self._messages)
-
-        if execution_context_id is None:
-            filtered = [
+            messages = list(self._messages)
+        elif execution_context_id is None:
+            messages = [
                 msg
                 for msg in self._messages
                 if msg.get("execution_context_id") is None
             ]
         else:
-            filtered = [
+            messages = [
                 msg
                 for msg in self._messages
                 if msg.get("execution_context_id") == execution_context_id
             ]
-        return filtered
+
+        if not for_llm:
+            return messages
+
+        # --- LLM Processing Logic ---
+        from copy import deepcopy
+
+        # 1. Skip system messages (managed externally/prepended)
+        filtered = [m for m in messages if m.get("role") != "system"]
+
+        # 2. Find last compression message for truncation
+        last_compression_idx = -1
+        for i, msg in enumerate(filtered):
+            if msg.get("role") == "compression":
+                last_compression_idx = i
+
+        # 3. Apply truncation
+        if last_compression_idx >= 0:
+            filtered = filtered[last_compression_idx:]
+
+        # 4. Final processing (convert compression to user, cleanup metadata)
+        final_messages = []
+        for msg in filtered:
+            msg_copy = deepcopy(msg)
+
+            # Remove _metadata before sending to LLM (save tokens)
+            if "_metadata" in msg_copy:
+                del msg_copy["_metadata"]
+
+            if msg_copy.get("role") == "compression":
+                msg_copy["role"] = "user"
+                # Ensure content is string
+                if not isinstance(msg_copy.get("content"), str):
+                    msg_copy["content"] = str(msg_copy.get("content", ""))
+
+            final_messages.append(msg_copy)
+
+        return final_messages
 
     def cleanup(self):
         """Cleanup the memory after the agent is interrupted."""

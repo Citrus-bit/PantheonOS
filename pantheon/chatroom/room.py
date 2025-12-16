@@ -12,7 +12,7 @@ from ..factory import (
     get_template_manager,
     TeamConfig,
 )
-from ..memory import MemoryManager
+from ..memory import MemoryManager, _ALL_CONTEXTS
 from ..settings import get_settings
 from ..team import PantheonTeam
 from ..toolset import ToolSet, tool
@@ -705,7 +705,8 @@ class ChatRoom(ToolSet):
         """
         try:
             memory = await run_func(self.memory_manager.get_memory, chat_id)
-            messages = await run_func(memory.get_messages)
+            # Get full raw history for UI
+            messages = await run_func(memory.get_messages, _ALL_CONTEXTS, False)
             if filter_out_images:
                 new_messages = []
                 for message in messages:

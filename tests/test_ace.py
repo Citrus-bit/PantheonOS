@@ -611,10 +611,12 @@ class TestLearningInput:
             agent_name="agent",
             messages=messages,
             learning_dir=temp_dir,
-            max_arg_length=100,
+            max_tool_arg_length=100,
+            max_tool_output_length=100,
         )
 
-        assert "(truncated)" in li.trajectory
+        # Unified format uses "... [N chars, see details_path]"
+        assert "... [" in li.trajectory and "chars" in li.trajectory
 
     def test_details_saved(self, sample_messages, temp_dir):
         """Test that full details are saved to file."""
@@ -630,7 +632,8 @@ class TestLearningInput:
 
         with open(li.details_path) as f:
             data = json.load(f)
-        assert data["turn_id"] == "save-test"
+        # Unified format saves messages directly
+        assert "messages" in data
         assert len(data["messages"]) == 4
 
     def test_skill_citation_extraction(self, temp_dir):

@@ -660,9 +660,12 @@ def count_tokens_in_messages(
                 meta["current_cost"] = current_cost
                 meta["total_cost"] = total_session_cost
                 
-                # Ensure metadata dict is attached to message
-                if "_metadata" not in target_message:
-                    target_message["_metadata"] = meta
+            # Store token counts for compression to read (Always write this)
+            meta["total_tokens"] = int(total_tokens)
+            
+            # Ensure metadata dict is attached to message
+            if "_metadata" not in target_message:
+                target_message["_metadata"] = meta
             
             # Scenario B: Read Mode (Historical data exists)
             elif "current_cost" in meta:

@@ -245,20 +245,39 @@ class ImageDetector(AttachmentDetector):
 # ==================== Unified Path Detection ====================
 
 
+
 class PathDetector(AttachmentDetector):
     """
     ✅ Unified detector for both file and image paths.
 
     Detects file paths and image paths in plain text (excluding Markdown syntax).
-    Classifies based on file extension:
-    - Image extensions (png, jpg, gif, etc.) → AttachmentType.IMAGE
-    - Other extensions (pdf, csv, txt, etc.) → AttachmentType.FILE
+    Classifies based on file extension and configuration.
     """
 
-    def __init__(self):
-        """Initialize compiled patterns with all extensions"""
-        all_extensions = COMMON_IMAGE_EXTENSIONS | set(COMMON_FILE_EXTENSIONS.keys())
-        extensions_pattern = "|".join(all_extensions)
+    def __init__(self, detect_files: bool = True, detect_images: bool = True):
+        """
+        Initialize with configuration.
+        
+        Args:
+            detect_files: Whether to detect non-image files
+            detect_images: Whether to detect images
+        """
+        self.detect_files = detect_files
+        self.detect_images = detect_images
+        
+        allowed_extensions = set()
+        if detect_images:
+            allowed_extensions.update(COMMON_IMAGE_EXTENSIONS)
+        if detect_files:
+            allowed_extensions.update(COMMON_FILE_EXTENSIONS.keys())
+            
+        if not allowed_extensions:
+            # Nothing to detect
+            self._PATTERN_SIMPLE_PATHS = None
+            self._PATTERN_COMPLEX_PATHS = None
+            return
+
+        extensions_pattern = "|".join(allowed_extensions)
 
         # Match simple filenames: word.ext, my-file.txt, data_2024.csv
         self._PATTERN_SIMPLE_PATHS = re.compile(
@@ -275,6 +294,10 @@ class PathDetector(AttachmentDetector):
     async def detect(self, content: str) -> List[DetectedAttachment]:
         """Detect file and image paths, classify by extension"""
         if not isinstance(content, str):
+            return []
+            
+        # Optimization: Skip if no patterns (nothing enabled)
+        if not self._PATTERN_SIMPLE_PATHS:
             return []
 
         attachments = []
@@ -345,12 +368,16 @@ class PathDetector(AttachmentDetector):
 
         extension = path.split(".")[-1].lower()
 
-        # ✅ Classify by extension
+        # ✅ Classify by extension (and respect config)
         if extension in COMMON_IMAGE_EXTENSIONS:
+            if not self.detect_images:
+                return None
             mime_type = f"image/{extension}"
             att_type = AttachmentType.IMAGE
             confidence = base_confidence
         elif extension in COMMON_FILE_EXTENSIONS:
+            if not self.detect_files:
+                return None
             mime_type = COMMON_FILE_EXTENSIONS[extension]
             att_type = AttachmentType.FILE
             confidence = base_confidence
@@ -456,8 +483,18 @@ class StructuredAttachmentExtractor(AttachmentDetector):
         "directory": (AttachmentType.FOLDER, AttachmentSourceType.FOLDER_PATH),
     }
 
+    def __init__(self, detect_files: bool = True, detect_links: bool = True):
+        """
+        Initialize with configuration.
+        """
+        self.detect_files = detect_files
+        self.detect_links = detect_links
+
     async def detect(self, content: any) -> List[DetectedAttachment]:
         """Extract attachments from structured content"""
+        # Optimization: If all structured detection is disabled, this should check a flag,
+        # but here we just respect the specific type flags during extraction.
+        
         if not isinstance(content, dict):
             return []
 
@@ -483,7 +520,7 @@ class StructuredAttachmentExtractor(AttachmentDetector):
             attachments.extend(
                 await self._extract_from_notebook_outputs(content["outputs"], "outputs")
             )
-
+            
         return attachments
 
     async def _extract_from_dict(
@@ -520,6 +557,14 @@ class StructuredAttachmentExtractor(AttachmentDetector):
             # SECOND: Check against field patterns
             for pattern_key, (att_type, source_type) in self.FIELD_PATTERNS.items():
                 if pattern_key not in field_lower:
+                    continue
+                    
+                # ✅ Filtering based on configuration
+                if att_type == AttachmentType.FILE and not self.detect_files:
+                    continue
+                if att_type == AttachmentType.FOLDER and not self.detect_files: # Treat folder as file for config
+                    continue
+                if att_type == AttachmentType.LINK and not self.detect_links:
                     continue
 
                 # Handle single string value

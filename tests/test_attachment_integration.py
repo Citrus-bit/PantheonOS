@@ -151,7 +151,10 @@ async def test_notebook_outputs_array():
 @pytest.mark.asyncio
 async def test_pipeline_orchestration():
     """Test that pipeline orchestrates all detectors"""
-    pipeline = AttachmentProcessingPipeline()
+    # Enable all detection for this test
+    pipeline = AttachmentProcessingPipeline(
+        config_override={"detect_files": True, "detect_links": True}
+    )
 
     # Create temporary files for valid paths
     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.pdf') as tmp_pdf:
@@ -212,7 +215,10 @@ async def test_message_processor_integration():
 @pytest.mark.asyncio
 async def test_serialization_format():
     """Test that DetectedAttachment objects are properly serialized"""
-    pipeline = AttachmentProcessingPipeline()
+    # Enable all detection for this test
+    pipeline = AttachmentProcessingPipeline(
+        config_override={"detect_files": True, "detect_links": True}
+    )
 
     message = {
         # Note: Markdown syntax is NOT detected (![image](...) and [link](...) are excluded)
@@ -236,7 +242,10 @@ async def test_serialization_format():
 @pytest.mark.asyncio
 async def test_deduplication():
     """Test that duplicate attachments are removed"""
-    pipeline = AttachmentProcessingPipeline()
+    # Enable all detection for this test
+    pipeline = AttachmentProcessingPipeline(
+        config_override={"detect_files": True, "detect_links": True}
+    )
 
     message = {
         "content": "Same link twice: https://example.com and https://example.com",
@@ -252,7 +261,10 @@ async def test_deduplication():
 @pytest.mark.asyncio
 async def test_confidence_sorting():
     """Test that attachments are sorted by confidence"""
-    pipeline = AttachmentProcessingPipeline()
+    # Enable all detection for this test
+    pipeline = AttachmentProcessingPipeline(
+        config_override={"detect_files": True, "detect_links": True}
+    )
 
     message = {
         "raw_content": {
@@ -274,7 +286,10 @@ async def test_confidence_sorting():
 @pytest.mark.asyncio
 async def test_attachment_types_variety():
     """Test that different attachment types are detected and properly formatted"""
-    pipeline = AttachmentProcessingPipeline()
+    # Enable all detection for this test
+    pipeline = AttachmentProcessingPipeline(
+        config_override={"detect_files": True, "detect_links": True}
+    )
 
     message = {
         "content": """

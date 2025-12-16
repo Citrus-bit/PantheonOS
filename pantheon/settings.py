@@ -257,9 +257,47 @@ class Settings:
                 self.ace_dir / ace.get("learning_dir", "learning")
             ),
             "max_skills_per_section": ace.get("max_skills_per_section", 30),
-            "max_content_length": ace.get("max_content_length", 500),
+            "max_content_length": ace.get("max_content_length", 500),  # For Skillbook (skill content limit)
+            "max_tool_arg_length": ace.get("max_tool_arg_length", 200),  # For learning trajectory
+            "max_tool_output_length": ace.get("max_tool_output_length", 200),  # For learning trajectory
             "cleanup_after_learning": ace.get("cleanup_after_learning", False),
             "enable_agent_scope": ace.get("enable_agent_scope", False),
+        }
+
+    def get_compression_config(self) -> Dict[str, Any]:
+        """
+        Get context compression configuration.
+        
+        Returns:
+            Dict with compression config: enable, threshold, preserve_recent_messages, etc.
+        """
+        self._ensure_loaded()
+        compression = self._settings.get("context_compression", {})
+        
+        return {
+            "enable": compression.get("enable", False),  # Disabled by default
+            "threshold": compression.get("threshold", 0.8),
+            "preserve_recent_messages": compression.get("preserve_recent_messages", 5),
+            "max_tool_arg_length": compression.get("max_tool_arg_length", 2000),
+            "max_tool_output_length": compression.get("max_tool_output_length", 5000),
+            "retry_after_messages": compression.get("retry_after_messages", 10),
+        }
+
+    def get_detection_config(self) -> Dict[str, bool]:
+        """
+        Get attachment detection configuration.
+
+        Returns:
+            Dict with detection flags: detect_images, detect_files, detect_links, detect_structured
+        """
+        self._ensure_loaded()
+        detection = self._settings.get("detection", {})
+
+        return {
+            "detect_images": detection.get("detect_images", True),
+            "detect_files": detection.get("detect_files", False),  # Disabled by default
+            "detect_links": detection.get("detect_links", False),  # Disabled by default
+            "detect_structured": detection.get("detect_structured", True),
         }
 
     def get_context_variables(self) -> dict[str, str]:

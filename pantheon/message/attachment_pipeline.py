@@ -22,21 +22,56 @@ from .attachment_detection import (
 )
 
 
+from ..settings import get_settings
+
 class AttachmentProcessingPipeline:
     """Pipeline for detecting and processing attachments in messages"""
 
-    def __init__(self):
-        """Initialize the pipeline with all detectors"""
+    def __init__(self, config_override: Optional[Dict[str, bool]] = None):
+        """
+        Initialize the pipeline with all detectors.
+        
+        Args:
+            config_override: Optional dictionary to override settings
+        """
+        settings = get_settings()
+        config = settings.get_detection_config()
+        
+        # Apply overrides if provided
+        if config_override:
+            config.update(config_override)
+
+        detect_images = config.get("detect_images", True)
+        detect_files = config.get("detect_files", False)
+        detect_links = config.get("detect_links", False)
+        detect_structured = config.get("detect_structured", True)
+
         # Detection order matters! More accurate detectors first
-        self.detectors: List[AttachmentDetector] = [
-            # 1. Structured fields (99% accuracy)
-            StructuredAttachmentExtractor(),
-            # 2. Unified path detector (files + images, excludes markdown syntax)
-            PathDetector(),
-            # 3. General purpose detectors
-            ImageDetector(),
-            LinkDetector(),
-        ]
+        self.detectors: List[AttachmentDetector] = []
+
+        if detect_structured:
+            self.detectors.append(
+                StructuredAttachmentExtractor(
+                    detect_files=detect_files, 
+                    detect_links=detect_links
+                )
+            )
+
+        # Unified path detector (files + images)
+        if detect_images or detect_files:
+            self.detectors.append(
+                PathDetector(
+                    detect_files=detect_files, 
+                    detect_images=detect_images
+                )
+            )
+
+        # General purpose detectors
+        if detect_images:
+            self.detectors.append(ImageDetector())
+            
+        if detect_links:
+            self.detectors.append(LinkDetector())
 
         self.deduplicate = True
 

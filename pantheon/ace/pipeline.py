@@ -47,132 +47,47 @@ def build_learning_input(
     agent_name: str,
     messages: List[dict],
     learning_dir: str = ".pantheon/ace/learning",
-    max_arg_length: int = 200,
+    max_tool_arg_length: int = 200,
+    max_tool_output_length: int = 200,
 ) -> LearningInput:
     """
     Build a LearningInput from conversation messages.
+    
+    Uses unified format_messages_to_text for message formatting.
     
     Args:
         turn_id: Unique identifier for this turn
         agent_name: Name of the agent
         messages: List of message dicts from the conversation
         learning_dir: Directory to save full turn details
-        max_arg_length: Max chars for tool args/results in trajectory
+        max_tool_arg_length: Max chars for tool argument values in trajectory
+        max_tool_output_length: Max chars for tool output in trajectory
     
     Returns:
         LearningInput ready for submission to Reflector
     """
-    # 1. Extract user question (first user message)
-    question = ""
-    for msg in messages:
-        if msg.get("role") == "user":
-            content = msg.get("content", "")
-            if isinstance(content, str):
-                question = content
-            elif isinstance(content, list):
-                # Handle multimodal content
-                for item in content:
-                    if isinstance(item, dict) and item.get("type") == "text":
-                        question = item.get("text", "")
-                        break
-            break
-
-    # 2. Format trajectory with truncation
-    trajectory_parts: List[str] = []
-    final_answer = ""
-    skill_ids: List[str] = []
-
-    for msg in messages:
-        role = msg.get("role", "")
-        
-        # Prioritize _llm_content if present and not empty
-        # This captures the actual context sent to the LLM (e.g. XML wrappers)
-        # We check truthiness to allow fallback if _llm_content is accidentally empty
-        if msg.get("_llm_content"):
-            content = msg["_llm_content"]
-        else:
-            content = msg.get("content")
-            
-        content = content or ""
-
-        # Handle multimodal content
-        if isinstance(content, list):
-            text_parts = []
-            for item in content:
-                if isinstance(item, dict) and item.get("type") == "text":
-                    text_parts.append(item.get("text", ""))
-            content = " ".join(text_parts)
-
-        if role == "user":
-            trajectory_parts.append(f"[USER]\n{content}")
-
-        elif role == "assistant":
-            # Extract cited skill IDs (format: [xxx-00001])
-            if content:
-                skill_ids.extend(re.findall(r"\[([a-z]+-\d{5})\]", content))
-
-            tool_calls = msg.get("tool_calls")
-            if tool_calls:
-                # Assistant with tool calls
-                if content:
-                    trajectory_parts.append(f"[ASSISTANT]\n{content}")
-                for tc in tool_calls:
-                    func = tc.get("function", {})
-                    name = func.get("name", "unknown")
-                    args = func.get("arguments", "")
-                    tc_id = tc.get("id", "")
-
-                    # Truncate args
-                    if len(args) > max_arg_length:
-                        args = args[:max_arg_length] + "... (truncated)"
-
-                    trajectory_parts.append(
-                        f"[TOOL_CALL: {name}] id={tc_id}\n{args}"
-                    )
-            else:
-                # Final assistant response
-                trajectory_parts.append(f"[ASSISTANT]\n{content}")
-                final_answer = content
-
-        elif role == "tool":
-            tc_id = msg.get("tool_call_id", "")
-            result = content
-
-            # Truncate result
-            if len(result) > max_arg_length:
-                result = result[:max_arg_length] + "... (truncated)"
-
-            trajectory_parts.append(f"[TOOL_RESULT] id={tc_id}\n{result}")
-
-    # 3. Save full details for later reference
-    details_path = ""
-    if learning_dir:
-        try:
-            details_path_obj = Path(learning_dir) / f"turn_{turn_id}.json"
-            details_path_obj.parent.mkdir(parents=True, exist_ok=True)
-            with details_path_obj.open("w", encoding="utf-8") as f:
-                json.dump(
-                    {
-                        "turn_id": turn_id,
-                        "agent_name": agent_name,
-                        "messages": messages,
-                    },
-                    f,
-                    ensure_ascii=False,
-                    indent=2,
-                )
-            details_path = str(details_path_obj)
-        except Exception as e:
-            logger.warning(f"Failed to save turn details: {e}")
-
+    from ..utils.message_formatter import format_messages_to_text
+    
+    # Use unified function for formatting
+    details_path = f"{learning_dir}/turn_{turn_id}.json" if learning_dir else None
+    
+    result = format_messages_to_text(
+        messages,
+        max_arg_length=max_tool_arg_length,
+        max_output_length=max_tool_output_length,
+        extract_files=True,
+        extract_skills=True,
+        save_details_to=details_path,
+    )
+    
     return LearningInput(
         turn_id=turn_id,
         agent_name=agent_name,
-        question=question,
-        trajectory="\n\n".join(trajectory_parts),
-        final_answer=final_answer,
-        skill_ids_cited=list(set(skill_ids)),
-        details_path=details_path,
+        question=result.question,
+        trajectory=result.text,
+        final_answer=result.final_answer,
+        skill_ids_cited=result.skill_ids,
+        details_path=result.details_path,
     )
 
 

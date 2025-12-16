@@ -200,6 +200,7 @@ class RemoteAgent:
         self.name = None
         self.instructions = None
         self.model = None
+        self.models = []  # Initialize empty list to avoid AttributeError
         self.events_queue = RemoteAgentMessageQueue(self)
 
     async def _connect(self):
@@ -1006,9 +1007,12 @@ class Agent:
 
         message["id"] = message_id
         message["timestamp"] = end_timestamp  # 保持兼容性
-        message["start_timestamp"] = request_start_time
-        message["end_timestamp"] = end_timestamp
-        message["generation_duration"] = total_time
+        
+        message.setdefault("_metadata", {}).update({
+            "start_timestamp": request_start_time,
+            "end_timestamp": end_timestamp,
+            "generation_duration": total_time,
+        })
 
         # Step 9: Log timing and tokens
         timings = tracker.get_all()
@@ -1411,11 +1415,14 @@ class Agent:
                 image_store.process_message_images(m, chat_id)
 
             logger.debug(
-                f"Input messages: {input_messages} , memory_length: {len(memory_instance.get_messages(execution_context_id=execution_context_id))} "
-                f"raw memory_length: {len(memory_instance.get_messages())} memory_id: {memory_instance.id}"
+                f"Input messages: {input_messages} , memory_length: {len(memory_instance.get_messages(execution_context_id=execution_context_id, for_llm=False))} "
+                f"raw memory_length: {len(memory_instance.get_messages(for_llm=False))} memory_id: {memory_instance.id}"
             )
             conversation_history = (
-                memory_instance.get_messages(execution_context_id=execution_context_id)
+                memory_instance.get_messages(
+                    execution_context_id=execution_context_id,
+                    for_llm=True
+                )
                 if (should_use_memory and memory_instance)
                 else []
             )

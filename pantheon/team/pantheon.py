@@ -152,12 +152,40 @@ class PantheonTeam(Team):
         self._skillbook = skillbook
         self._ace_pipeline = ace_pipeline
         self._skills_injected = False  # Track if skills are already injected
+        
+        # Context compression
+        self._compressor = self._init_compressor()
 
         super().__init__(agents)
 
         # Keep triage reference for backward compatibility (first agent)
         self.triage = self.team_agents[0]
         # Note: Skillbook injection moved to first run() call for cache-friendly behavior
+    
+    def _init_compressor(self):
+        """Initialize context compressor from settings."""
+        from ..settings import get_settings
+        from ..compression import CompressionConfig, ContextCompressor
+        
+        settings = get_settings()
+        compression_config = settings.get_compression_config()
+        
+        if not compression_config.get("enable", False):
+            return None
+        
+        config = CompressionConfig(
+            enable=True,
+            threshold=compression_config.get("threshold", 0.8),
+            preserve_recent_messages=compression_config.get("preserve_recent_messages", 5),
+            max_tool_arg_length=compression_config.get("max_tool_arg_length", 2000),
+            max_tool_output_length=compression_config.get("max_tool_output_length", 5000),
+            retry_after_messages=compression_config.get("retry_after_messages", 10),
+        )
+        
+        # Use first agent's model for compression
+        model = self.team_agents[0].models[0] if self.team_agents else "gpt-4o-mini"
+        
+        return ContextCompressor(config, model)
 
     def _inject_skillbook_to_agents(self) -> None:
         """Inject relevant skillbook content into all agent instructions."""
@@ -203,6 +231,8 @@ class PantheonTeam(Team):
             agent_name=agent_name,
             messages=messages,
             learning_dir=ace_config["learning_dir"],
+            max_tool_arg_length=ace_config["max_tool_arg_length"],
+            max_tool_output_length=ace_config["max_tool_output_length"],
         )
         
         # For sub_agent, use delegation instruction as question
@@ -211,6 +241,45 @@ class PantheonTeam(Team):
         
         self._ace_pipeline.submit(learning_input)
         logger.debug(f"Submitted learning for {agent_name}, turn_id={turn_id}")
+
+    async def _perform_compression(self, memory: Memory) -> None:
+        """Perform context compression on the memory.
+        
+        Args:
+            memory: Memory instance to compress
+        """
+        from ..settings import get_settings
+        
+        settings = get_settings()
+        # Use ace/learning directory for unified management with ACE learning data
+        ace_config = settings.get_ace_config()
+        compression_dir = ace_config["learning_dir"]
+        
+        result = await self._compressor.compress(
+            messages=memory._messages,
+            compression_dir=compression_dir,
+        )
+        
+        if result.compression_message:
+            # Get compression range to know which messages to replace
+            compress_start, compress_end = self._compressor._get_compression_range(memory._messages)
+            
+            # Non-destructive compression: Insert compression message AFTER the compressed block
+            # This preserves raw messages for UI/History while allowing get_messages(for_llm=True)
+            # to filter them out based on the checkpoint position.
+            
+            # Insert at compress_end (the index immediately following the compressed block)
+            new_messages = (
+                memory._messages[:compress_end] +
+                [result.compression_message] +
+                memory._messages[compress_end:]
+            )
+            memory._messages = new_messages
+            
+            logger.info(
+                f"Context compression checkpoint inserted at index {compress_end}. "
+                f"Compressed {compress_end - compress_start} messages ({result.original_tokens} -> {result.new_tokens} tokens)."
+            )
 
     def get_active_agent(self, memory: Memory) -> Agent | RemoteAgent:
         active_agent_name = memory.extra_data.get("active_agent")
@@ -454,6 +523,11 @@ class PantheonTeam(Team):
         
         while True:
             active_agent = self.get_active_agent(memory)
+            
+            # Check and perform compression if needed
+            if self._compressor and self._compressor.should_compress(memory._messages, active_agent.models[0]):
+                await self._perform_compression(memory)
+            
             resp = await active_agent.run(msg, memory=memory, **kwargs)
             if isinstance(resp, AgentTransfer):
                 transfer_call_id = resp.tool_call_id
