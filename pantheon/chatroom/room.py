@@ -24,8 +24,6 @@ from .thread import Thread
 if TYPE_CHECKING:
     from pantheon.endpoint import Endpoint
 
-import openai
-
 
 DEFAULT_TOOLSETS = []
 
@@ -92,6 +90,7 @@ class ChatRoom(ToolSet):
                 # but we can get it from the factory or create a new one.
                 # Since we want consistency, let's use the global settings instance.
                 from pantheon.settings import get_settings
+
                 settings = get_settings()
                 workspace_path = str(settings.workspace)
 
@@ -169,7 +168,7 @@ class ChatRoom(ToolSet):
     ) -> None:
         """Initialize Long-term memory resources."""
         from pantheon.internal.learning import create_learning_resources
-        
+
         self._skillbook, self._learning_pipeline = create_learning_resources(
             enable=enable_learning, config=learning_config
         )
@@ -937,6 +936,8 @@ class ChatRoom(ToolSet):
             bytes_data: The bytes data of the audio.
         """
         try:
+            import openai
+
             client = openai.OpenAI()
 
             # Try different audio formats until one works
@@ -1275,7 +1276,9 @@ class ChatRoom(ToolSet):
             # Update the agent's model in template
             for agent_config in team_template.get("agents", []):
                 if agent_config.get("name") == agent_name:
-                    agent_config["model"] = model  # Store original input (tag or model name)
+                    agent_config["model"] = (
+                        model  # Store original input (tag or model name)
+                    )
                     break
 
             memory.extra_data["team_template"] = team_template

@@ -8,7 +8,7 @@ import base64
 import io
 from datetime import datetime
 
-from PIL import Image
+
 
 from pantheon.toolset import ToolSet, tool
 from pantheon.utils.log import logger
@@ -386,6 +386,7 @@ class FileManagerToolSetBase(ToolSet):
 
 
 def path_to_image_url(path: str) -> str:
+    from PIL import Image
     img = Image.open(path)
     with io.BytesIO() as buffer:
         img.save(buffer, format="PNG")
