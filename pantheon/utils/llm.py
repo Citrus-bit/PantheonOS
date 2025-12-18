@@ -153,14 +153,10 @@ async def acompletion_litellm(
         "tools": tools,
         "response_format": response_format,
         "stream": True,
+        # Enable usage tracking for all models - LiteLLM automatically handles provider compatibility
+        "stream_options": {"include_usage": True},
     }
-    
-    # Only add stream_options for OpenAI-compatible models
-    # Other providers may not support this parameter
-    model_lower = model.lower()
-    if model_lower.startswith("openai/") or model_lower.startswith("gpt") or model_lower.startswith("o1") or model_lower.startswith("o3"):
-        kwargs["stream_options"] = {"include_usage": True}
-    
+
     if model_params:
         kwargs.update(**model_params)
 
@@ -169,7 +165,9 @@ async def acompletion_litellm(
         kwargs["api_base"] = base_url
 
     response = await litellm.acompletion(**kwargs)
+    collected_chunks = []
     async for chunk in response:
+        collected_chunks.append(chunk)
         if (
             process_chunk
             and hasattr(chunk, "choices")
@@ -178,22 +176,25 @@ async def acompletion_litellm(
         ):
             choice = chunk.choices[0]
             if hasattr(choice, "delta"):
-                await run_func(process_chunk, choice.delta.model_dump())
+                delta = choice.delta.model_dump()
+                # LiteLLM provides unified reasoning_content field
+                await run_func(process_chunk, delta)
             if hasattr(choice, "finish_reason") and choice.finish_reason == "stop":
                 await run_func(process_chunk, {"stop": True})
-    complete_resp = litellm.stream_chunk_builder(response.chunks)
-    
+
+    complete_resp = litellm.stream_chunk_builder(collected_chunks)
+
     # Calculate and attach cost information
     try:
         cost = litellm.completion_cost(completion_response=complete_resp)
         if cost and cost > 0:
             # Store cost in a way that count_tokens_in_messages can access
-            if not hasattr(complete_resp, '_hidden_params'):
+            if not hasattr(complete_resp, "_hidden_params"):
                 complete_resp._hidden_params = {}
-            complete_resp._hidden_params['response_cost'] = cost
+            complete_resp._hidden_params["response_cost"] = cost
     except Exception:
         pass  # Silently ignore cost calculation errors
-    
+
     return complete_resp
 
 
@@ -201,6 +202,20 @@ def remove_parsed(messages: list[dict]) -> list[dict]:
     for message in messages:
         if "parsed" in message:
             del message["parsed"]
+    return messages
+
+
+def remove_reasoning_content(messages: list[dict]) -> list[dict]:
+    """Remove reasoning fields from messages (prevent context pollution).
+
+    Removes both reasoning_content (unified field) and thinking_blocks (Claude-specific).
+    """
+    for message in messages:
+        if "reasoning_content" in message:
+            del message["reasoning_content"]
+        # Claude-specific: also remove thinking_blocks
+        if "thinking_blocks" in message:
+            del message["thinking_blocks"]
     return messages
 
 
@@ -443,6 +458,7 @@ def process_messages_for_model(messages: list[dict], model: str) -> list[dict]:
     """
     messages = deepcopy(messages)
     messages = remove_parsed(messages)
+    messages = remove_reasoning_content(messages)
     messages = remove_raw_content(messages)
     messages = filter_tool_messages(messages)
     messages = remove_extra_fields(messages)
@@ -468,7 +484,7 @@ async def openai_embedding(
 ) -> list[list[float]]:
     import openai
     from pantheon.settings import get_settings
-    
+
     settings = get_settings()
     api_key = settings.get_api_key("OPENAI_API_KEY")
     base_url = settings.get_api_key("OPENAI_API_BASE")
@@ -588,6 +604,7 @@ def _fallback_token_count(text: str) -> int:
     """Fallback token counter using tiktoken for unsupported models."""
     try:
         import tiktoken
+
         enc = tiktoken.get_encoding("cl100k_base")
         return len(enc.encode(text))
     except Exception:
@@ -595,15 +612,18 @@ def _fallback_token_count(text: str) -> int:
         return len(text) // 4
 
 
-def _safe_token_counter(model: str, messages: list[dict] = None, tools: list[dict] = None) -> int:
+def _safe_token_counter(
+    model: str, messages: list[dict] = None, tools: list[dict] = None
+) -> int:
     """Token counter with fallback for unsupported models."""
     try:
         from litellm.utils import token_counter
+
         return token_counter(model=model, messages=messages or [], tools=tools)
     except Exception:
         # Fallback: count tokens from message content
         total = 0
-        for msg in (messages or []):
+        for msg in messages or []:
             content = msg.get("content", "")
             if isinstance(content, str):
                 total += _fallback_token_count(content)
@@ -615,15 +635,16 @@ def _safe_token_counter(model: str, messages: list[dict] = None, tools: list[dic
         # Estimate tools tokens
         if tools:
             import json
+
             total += _fallback_token_count(json.dumps(tools))
         return total
 
 
 def count_tokens_in_messages(
-    messages: list[dict], 
-    model: str, 
+    messages: list[dict],
+    model: str,
     tools: list[dict] | None = None,
-    assistant_message: dict | None = None
+    assistant_message: dict | None = None,
 ) -> dict:
     """Count tokens with per-role breakdown and context usage metrics.
 
@@ -671,24 +692,25 @@ def count_tokens_in_messages(
             model_info = {}  # Will use fallback defaults below
 
         # Calculate usage metrics (use conservative defaults for unknown models)
-        max_input_tokens = model_info.get("max_input_tokens") or 2_00_000  # 200K default
+        max_input_tokens = (
+            model_info.get("max_input_tokens") or 2_00_000
+        )  # 200K default
         max_output_tokens = model_info.get("max_output_tokens") or 32_000  # 32K default
         max_tokens = max_input_tokens + max_output_tokens
         remaining = max(0, max_tokens - total_tokens)
         usage_percent = (
             round((total_tokens / max_tokens * 100), 1) if max_tokens > 0 else 0
         )
-        
+
         # calculate estimated cost for the current model
         input_cost_per_token = model_info.get("input_cost_per_token", 0) or 0
         output_cost_per_token = model_info.get("output_cost_per_token", 0) or 0
-        
+
         # Determine target message for cost tracking
-        # Use explicit assistant_message if provided (Write Mode), 
+        # Use explicit assistant_message if provided (Write Mode),
         # otherwise find last assistant message in history (Read Mode)
         target_message = assistant_message or next(
-            (m for m in reversed(msgs_to_count) if m.get("role") == "assistant"), 
-            None
+            (m for m in reversed(msgs_to_count) if m.get("role") == "assistant"), None
         )
 
         # Estimate input/output split
@@ -697,23 +719,27 @@ def count_tokens_in_messages(
         # Everything else is considered input tokens
         output_tokens = 0
         if target_message:
-             # Recalculate/Get target message tokens
-             # Note: We don't have per-message tokens stored easily unless we re-count or captured it loop
-             # But we can approximate. 
-             # Better approach: We know total_tokens. We can subtract target_message tokens if we knew them.
-             # Actually, let's just use the simple heuristic: 
-             # If target_message is assistant, its content is output.
-             output_tokens = _safe_token_counter(model=model, messages=[target_message])
-        
+            # Recalculate/Get target message tokens
+            # Note: We don't have per-message tokens stored easily unless we re-count or captured it loop
+            # But we can approximate.
+            # Better approach: We know total_tokens. We can subtract target_message tokens if we knew them.
+            # Actually, let's just use the simple heuristic:
+            # If target_message is assistant, its content is output.
+            output_tokens = _safe_token_counter(model=model, messages=[target_message])
+
         input_tokens = max(0, total_tokens - output_tokens)
-        current_cost = round((input_tokens * input_cost_per_token) + (output_tokens * output_cost_per_token), 6)
-        
+        current_cost = round(
+            (input_tokens * input_cost_per_token)
+            + (output_tokens * output_cost_per_token),
+            6,
+        )
+
         total_session_cost = None
 
         # Process cost tracking if we have a target message
         if target_message:
             meta = target_message.get("_metadata", {})
-            
+
             # Scenario A: Write Mode (Provider returned debug cost in metadata)
             if "_debug_cost" in meta:
                 current_cost = meta.pop("_debug_cost", 0.0)
@@ -722,35 +748,40 @@ def count_tokens_in_messages(
                 # Calculate total cost from history
                 # Find the most recent previous assistant message with cost data
                 prev_msg = next(
-                    (m for m in reversed(messages) 
-                     if m is not target_message 
-                     and m.get("role") == "assistant" 
-                     and "total_cost" in m.get("_metadata", {})), 
-                    None
+                    (
+                        m
+                        for m in reversed(messages)
+                        if m is not target_message
+                        and m.get("role") == "assistant"
+                        and "total_cost" in m.get("_metadata", {})
+                    ),
+                    None,
                 )
-                
-                previous_total = prev_msg["_metadata"]["total_cost"] if prev_msg else 0.0
+
+                previous_total = (
+                    prev_msg["_metadata"]["total_cost"] if prev_msg else 0.0
+                )
                 total_session_cost = previous_total + current_cost
-                
+
                 # Persist updated cost info to metadata
                 meta["current_cost"] = current_cost
-            
+
             # Scenario A': Write Mode (No provider cost, store estimated cost)
             elif "current_cost" not in meta and current_cost > 0:
                 meta["current_cost"] = current_cost
-                
+
             # Store token counts for compression to read (Always write this)
             meta["total_tokens"] = int(total_tokens)
-            
+
             # Ensure metadata dict is attached to message
             if "_metadata" not in target_message:
                 target_message["_metadata"] = meta
-            
+
             # Scenario B: Read Mode (Historical data exists)
             elif "current_cost" in meta:
                 current_cost = meta["current_cost"]
                 total_session_cost = meta.get("total_cost")
-        
+
         # Scenario C: Fallback estimation (no _debug_cost, no stored total_cost)
         # Sum up current_cost from each assistant message's metadata
         if total_session_cost is None:
@@ -871,7 +902,7 @@ def format_token_visualization(
 
     # Build summary line with detailed information
     summary_parts = []
-    
+
     # helper for summary item
     def add_summary_item(name, label, count, msg_count=None):
         if count == 0:
@@ -880,26 +911,37 @@ def format_token_visualization(
         color = role_colors.get(name, "")
         count_part = f"msg{'s' if msg_count != 1 else ''}"
         msg_info = f", {msg_count} {count_part}" if msg_count is not None else ""
-        
+
         summary_parts.append(
             f"{color}{label}{reset_color}: {count} ({percentage:.0f}%{msg_info})"
         )
 
     add_summary_item("system_prompt", "SysPrompt", system_prompt_tokens)
     add_summary_item("tools_definition", "ToolsDef", tools_definition_tokens)
-    add_summary_item("system", "System", by_role.get("system", 0), message_counts.get("system", 0))
-    add_summary_item("user", "User", by_role.get("user", 0), message_counts.get("user", 0))
-    add_summary_item("assistant", "Assistant", by_role.get("assistant", 0), message_counts.get("assistant", 0))
-    add_summary_item("tool", "Tool", by_role.get("tool", 0), message_counts.get("tool", 0))
+    add_summary_item(
+        "system", "System", by_role.get("system", 0), message_counts.get("system", 0)
+    )
+    add_summary_item(
+        "user", "User", by_role.get("user", 0), message_counts.get("user", 0)
+    )
+    add_summary_item(
+        "assistant",
+        "Assistant",
+        by_role.get("assistant", 0),
+        message_counts.get("assistant", 0),
+    )
+    add_summary_item(
+        "tool", "Tool", by_role.get("tool", 0), message_counts.get("tool", 0)
+    )
 
     summary_line = "📊 " + " | ".join(summary_parts)
     # Add current cost to summary line
     current_cost = token_info.get("current_cost", 0)
     summary_line += f" | Cost: ${current_cost:.4f}"
-    
+
     # Add total cost to summary line if available
     if (total_cost := token_info.get("total_cost")) is not None:
-         summary_line += f" | Total: ${total_cost:.4f}"
+        summary_line += f" | Total: ${total_cost:.4f}"
 
     # Generate warning line if usage >= 90%
     warning_line = ""

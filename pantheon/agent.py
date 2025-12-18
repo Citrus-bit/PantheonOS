@@ -989,6 +989,7 @@ class Agent:
         response_format: Any | None = None,
         process_chunk: Callable | None = None,
         allow_transfer: bool = True,
+        context_variables: dict | None = None,
     ) -> dict:
         """Get LLM completion for messages (simplified and optimized).
 
@@ -1061,7 +1062,13 @@ class Agent:
             async with tracker.measure("begin_chunk"):
                 await enhanced_process_chunk({"begin": True})
 
-        # Step 7: Call LLM provider (unified interface)
+        # Step 7: Merge model_params from context_variables if provided
+        model_params = self.model_params
+        if context_variables and "model_params" in context_variables:
+            # Runtime overrides instance defaults
+            model_params = {**self.model_params, **context_variables["model_params"]}
+        
+        # Step 8: Call LLM provider (unified interface)
         # logger.info(f"Raw messages: {messages}")
 
         async with tracker.measure("llm_api"):
@@ -1071,7 +1078,7 @@ class Agent:
                 tools=tools,
                 response_format=response_format,
                 process_chunk=enhanced_process_chunk,
-                model_params=self.model_params,
+                model_params=model_params,
             )
 
         # Step 8: Add metadata to message
@@ -1118,6 +1125,7 @@ class Agent:
         process_chunk,
         allow_transfer,
         model: str | list[str] | None = None,
+        context_variables: dict | None = None,
     ):
         error_count = 0
         if model is None:
@@ -1142,6 +1150,7 @@ class Agent:
                     response_format=response_format,
                     process_chunk=process_chunk,
                     allow_transfer=allow_transfer,
+                    context_variables=context_variables,
                 )
                 return message
             except StopRunning:
@@ -1289,6 +1298,7 @@ class Agent:
                 _process_chunk,
                 allow_transfer,
                 model=model,
+                context_variables=context_variables,
             )
 
             if Response is not None:

@@ -19,8 +19,10 @@ from .log import logger
 
 # ============ Enums and Data Classes ============
 
+
 class ProviderType(Enum):
     """Supported LLM providers"""
+
     OPENAI = "openai"
     LITELLM = "litellm"
 
@@ -28,6 +30,7 @@ class ProviderType(Enum):
 @dataclass
 class ProviderConfig:
     """Provider configuration"""
+
     provider_type: ProviderType
     model_name: str
     base_url: Optional[str] = None
@@ -35,6 +38,7 @@ class ProviderConfig:
 
 
 # ============ Provider Detection ============
+
 
 def detect_provider(model: str, force_litellm: bool) -> ProviderConfig:
     """Detect provider from model string.
@@ -68,9 +72,7 @@ def detect_provider(model: str, force_litellm: bool) -> ProviderConfig:
         provider_type = ProviderType.LITELLM
 
     return ProviderConfig(
-        provider_type=provider_type,
-        model_name=model_name,
-        force_litellm=force_litellm
+        provider_type=provider_type, model_name=model_name, force_litellm=force_litellm
     )
 
 
@@ -84,11 +86,13 @@ def get_base_url(provider: ProviderType) -> Optional[str]:
         Base URL if set, None otherwise
     """
     from pantheon.settings import get_settings
+
     env_var = f"{provider.value.upper()}_API_BASE"
     return get_settings().get_api_key(env_var)
 
 
 # ============ Response Extraction ============
+
 
 def _create_error_message(content: str) -> dict:
     """Create standardized error message.
@@ -99,10 +103,7 @@ def _create_error_message(content: str) -> dict:
     Returns:
         Error message dictionary
     """
-    return {
-        "role": "assistant",
-        "content": f"Error: {content}"
-    }
+    return {"role": "assistant", "content": f"Error: {content}"}
 
 
 def _clean_message_fields(message: dict) -> None:
@@ -125,14 +126,14 @@ def _clean_message_fields(message: dict) -> None:
 
 def _extract_cost_and_usage(complete_resp: Any) -> tuple[float, dict]:
     """Calculate cost and extract usage from response.
-    
+
     Cost and usage are extracted independently - cost calculation failures
     (e.g., for new models not yet in litellm's price map) should not prevent
     usage data from being captured.
     """
     cost = 0.0
     usage_dict = {}
-    
+
     # Extract usage first (independent of cost calculation)
     usage = getattr(complete_resp, "usage", None)
     if usage:
@@ -145,15 +146,16 @@ def _extract_cost_and_usage(complete_resp: Any) -> tuple[float, dict]:
                 usage_dict = dict(usage)
             except Exception:
                 pass
-    
+
     # Try to calculate cost (may fail for new/unmapped models)
     try:
         from litellm import completion_cost
+
         cost = completion_cost(completion_response=complete_resp) or 0.0
     except Exception as e:
         # DEBUG level: this is expected for new models not yet in litellm's price map
         logger.debug(f"Cost calculation unavailable: {e}")
-    
+
     # Fallback: estimate cost from usage if litellm failed but we have token counts
     if cost == 0.0 and usage_dict:
         input_tokens = usage_dict.get("prompt_tokens", 0)
@@ -162,15 +164,15 @@ def _extract_cost_and_usage(complete_resp: Any) -> tuple[float, dict]:
             # Conservative estimate using GPT-4o pricing as reference
             # $1/1M input tokens, $5/1M output tokens
             cost = (input_tokens * 1.0 + output_tokens * 5.0) / 1_000_000
-            logger.debug(f"Using estimated cost: ${cost:.6f} ({input_tokens} in, {output_tokens} out)")
-                    
+            logger.debug(
+                f"Using estimated cost: ${cost:.6f} ({input_tokens} in, {output_tokens} out)"
+            )
+
     return cost, usage_dict
 
 
-
 def extract_message_from_response(
-    complete_resp: Any,
-    error_prefix: str = "API"
+    complete_resp: Any, error_prefix: str = "API"
 ) -> dict:
     """Extract message from API response.
 
@@ -199,10 +201,10 @@ def extract_message_from_response(
     # Extract message
     try:
         message = complete_resp.choices[0].message.model_dump()
-        
+
         # Calculate cost and usage
         cost, usage = _extract_cost_and_usage(complete_resp)
-        
+
         # Attach debug info (hidden fields)
         if "_metadata" not in message:
             message["_metadata"] = {}
@@ -216,11 +218,11 @@ def extract_message_from_response(
 
     # Clean fields
     _clean_message_fields(message)
-
     return message
 
 
 # ============ Enhanced Chunk Processing ============
+
 
 def create_enhanced_process_chunk(
     base_process_chunk: Callable | None,
@@ -262,6 +264,7 @@ def create_enhanced_process_chunk(
 
 # ============ Unified LLM Provider Call ============
 
+
 async def call_llm_provider(
     config: ProviderConfig,
     messages: list[dict],
@@ -284,6 +287,7 @@ async def call_llm_provider(
         response_format: Response format specification
         process_chunk: Optional chunk processor
         model_params: Additional parameters for calling the LLM provider
+                      (Contains 'thinking' shorthand if provided)
 
     Returns:
         Extracted and cleaned message dictionary
@@ -293,6 +297,27 @@ async def call_llm_provider(
         acompletion_litellm,
         remove_metadata,
     )
+
+    # Initialize model_params if None
+    model_params = model_params or {}
+
+    # Resolve 'thinking' parameter from runtime model_params
+    thinking_param = model_params.pop("thinking", None)
+
+    if thinking_param is not None:
+        if thinking_param is True:
+            model_params["reasoning_effort"] = "medium"
+        elif thinking_param is False:
+            pass  # Don't set any parameter
+        elif isinstance(thinking_param, str):
+            # Direct effort level: "low", "medium", "high"
+            model_params["reasoning_effort"] = thinking_param
+        elif isinstance(thinking_param, dict):
+            model_params["thinking"] = thinking_param
+        else:
+            logger.warning(
+                f"Invalid thinking parameter type: {type(thinking_param)}. Disabling thinking."
+            )
 
     # Remove metadata before sending to LLM
     clean_messages = [m.copy() for m in messages]
