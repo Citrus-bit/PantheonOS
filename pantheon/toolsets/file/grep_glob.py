@@ -203,7 +203,7 @@ def glob_search(
             else:
                 raise FileNotFoundError("fd not available")
         except Exception as e:
-            logger.warning(f"fd failed ({e}), using Python fallback")
+            logger.debug(f"fd failed ({e}), using Python fallback")
             files = run_glob_fallback(
                 pattern, search_dir, workspace_root, respect_git_ignore
             )

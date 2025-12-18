@@ -214,6 +214,23 @@ class ChatRoom(ToolSet):
             await self._learning_pipeline.start()
             logger.info("ChatRoom: learning pipeline started")
 
+    async def cleanup(self) -> None:
+        """Clean up ChatRoom resources before exit.
+        
+        Stops learning pipeline (saves skillbook) and cancels background tasks.
+        """
+        # Stop learning pipeline (saves skillbook)
+        if self._learning_pipeline is not None:
+            try:
+                await self._learning_pipeline.stop()
+            except Exception:
+                pass
+        
+        # Cancel any pending background tasks
+        for task in self._background_tasks:
+            if not task.done():
+                task.cancel()
+
     def _save_team_template_to_memory(self, memory, template_obj: dict) -> None:
         """Save TeamConfig to memory for persistence (new format)."""
         extra_data = getattr(memory, "extra_data", None)

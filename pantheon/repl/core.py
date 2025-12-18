@@ -9,6 +9,9 @@ from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 
+# Import suppress_aiohttp_warnings (log.py also registers warning filters on import)
+from pantheon.utils.log import suppress_aiohttp_warnings
+
 from rich.text import Text
 from rich.live import Live
 from rich.markdown import Markdown
@@ -196,32 +199,23 @@ class Repl(ReplUI):
         def signal_handler(signum, frame):
             should_exit = self.handle_interrupt()
             if should_exit:
-                # Ensure terminal settings are restored before exit
-                self._restore_terminal()
-                sys.exit(1)
+                # Use prompt_toolkit's app.exit() for proper terminal restoration
+                if self.prompt_app and hasattr(self.prompt_app, 'app') and self.prompt_app.app.is_running:
+                    self.prompt_app.app.exit()
+                else:
+                    sys.exit(1)
 
         if hasattr(signal, "SIGINT"):
             signal.signal(signal.SIGINT, signal_handler)
-    
-    def _restore_terminal(self):
-        """Restore terminal settings to normal mode.
-        
-        Called before exit to ensure terminal is in a usable state,
-        especially when exiting from within patch_stdout context.
-        """
+
+    async def _cleanup_resources(self):
+        """Clean up resources before exit."""
+        # Clean up ChatRoom resources (stops learning pipeline which saves skillbook)
         try:
-            import termios
-            import sys
-            # Restore terminal to canonical mode (cooked mode)
-            if sys.stdin.isatty():
-                fd = sys.stdin.fileno()
-                # Get current terminal attributes
-                old_settings = termios.tcgetattr(fd)
-                # Enable canonical mode and echo
-                old_settings[3] = old_settings[3] | termios.ECHO | termios.ICANON
-                termios.tcsetattr(fd, termios.TCSANOW, old_settings)
+            if hasattr(self, '_chatroom') and self._chatroom:
+                await self._chatroom.cleanup()
         except Exception:
-            pass  # Silently ignore errors (may not be a TTY or on Windows)
+            pass
 
     def handle_interrupt(self) -> bool:
         """Handle Ctrl+C interrupt with double-press logic.
@@ -573,6 +567,16 @@ class Repl(ReplUI):
                      await self._handle_message_or_command(msg)
 
         finally:
+            # Clean up ChatRoom resources (saves skillbook via learning pipeline)
+            await self._cleanup_resources()
+            
+            # Suppress any remaining aiohttp warnings during GC
+            try:
+                loop = asyncio.get_event_loop()
+                loop.set_exception_handler(suppress_aiohttp_warnings)
+            except Exception:
+                pass
+            
             if self._use_prompt_toolkit:
                 self.output.exit_patch_context()
 

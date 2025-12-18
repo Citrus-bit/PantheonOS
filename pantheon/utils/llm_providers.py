@@ -124,28 +124,47 @@ def _clean_message_fields(message: dict) -> None:
 
 
 def _extract_cost_and_usage(complete_resp: Any) -> tuple[float, dict]:
-    """Calculate cost and extract usage from response."""
+    """Calculate cost and extract usage from response.
+    
+    Cost and usage are extracted independently - cost calculation failures
+    (e.g., for new models not yet in litellm's price map) should not prevent
+    usage data from being captured.
+    """
+    cost = 0.0
+    usage_dict = {}
+    
+    # Extract usage first (independent of cost calculation)
+    usage = getattr(complete_resp, "usage", None)
+    if usage:
+        if hasattr(usage, "model_dump"):
+            usage_dict = usage.model_dump()
+        elif hasattr(usage, "to_dict"):
+            usage_dict = usage.to_dict()
+        else:
+            try:
+                usage_dict = dict(usage)
+            except Exception:
+                pass
+    
+    # Try to calculate cost (may fail for new/unmapped models)
     try:
         from litellm import completion_cost
-        cost = completion_cost(completion_response=complete_resp)
-        usage = getattr(complete_resp, "usage", None)
-        
-        usage_dict = {}
-        if usage:
-            if hasattr(usage, "model_dump"):
-                usage_dict = usage.model_dump()
-            elif hasattr(usage, "to_dict"):
-                usage_dict = usage.to_dict()
-            else:
-                try:
-                    usage_dict = dict(usage)
-                except Exception:
-                    pass
-                    
-        return cost or 0.0, usage_dict
+        cost = completion_cost(completion_response=complete_resp) or 0.0
     except Exception as e:
-        logger.warning(f"Failed to calculate completion cost: {e}")
-        return 0.0, {}
+        # DEBUG level: this is expected for new models not yet in litellm's price map
+        logger.debug(f"Cost calculation unavailable: {e}")
+    
+    # Fallback: estimate cost from usage if litellm failed but we have token counts
+    if cost == 0.0 and usage_dict:
+        input_tokens = usage_dict.get("prompt_tokens", 0)
+        output_tokens = usage_dict.get("completion_tokens", 0)
+        if input_tokens or output_tokens:
+            # Conservative estimate using GPT-4o pricing as reference
+            # $1/1M input tokens, $5/1M output tokens
+            cost = (input_tokens * 1.0 + output_tokens * 5.0) / 1_000_000
+            logger.debug(f"Using estimated cost: ${cost:.6f} ({input_tokens} in, {output_tokens} out)")
+                    
+    return cost, usage_dict
 
 
 

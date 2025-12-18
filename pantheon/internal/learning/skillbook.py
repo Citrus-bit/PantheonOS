@@ -52,7 +52,7 @@ When a user message starts with `/` followed by a skill ID (e.g., `/scrna-workfl
 
 SKILLBOOK_HEADER = """\
 ## 📚 Available Strategic Knowledge (Learned from Experience)
-The following strategies have been learned from previous interactions.
+The following strategies have been learned from previous task executions.
 Each skill shows its success rate: (stats: +helpful / -harmful / ~neutral)
 """
 

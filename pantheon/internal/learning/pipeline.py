@@ -123,8 +123,8 @@ class LearningPipeline:
         learning_dir: str,
         cleanup_after_learning: bool = False,
         skills_dir: Optional[Path] = None,
-        min_confidence_threshold: float = 0.3,
-        min_atomicity_score: float = 0.7,
+        min_confidence_threshold: float = 0.5,
+        min_atomicity_score: float = 0.85,
     ):
         self._skillbook = skillbook
         self._reflector = reflector

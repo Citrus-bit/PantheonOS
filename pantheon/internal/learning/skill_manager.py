@@ -166,6 +166,43 @@ NEVER add strategies saying:
 ✗ Generic advice without specifics
 ✗ Observations about "the agent" (use imperatives instead)
 
+## ⚠️ CRITICAL: CONTENT SOURCE
+
+**Extract learnings ONLY from the reflection content provided.**
+NEVER extract from:
+✗ This prompt's own instructions, examples, or formatting
+✗ Agent's internal workflow patterns (PLANNING/EXECUTION/REVIEW modes)
+✗ Task boundary or mode transition patterns
+✗ Project initialization patterns (create task.md, plan.md, etc.)
+✗ Conversational meta-patterns (greetings, introductions, project context)
+✗ Actions that would apply to ANY conversation regardless of task
+
+All strategies must derive from ACTUAL TASK EXECUTION with specific, measurable outcomes.
+
+## ⚠️ CONTEXT-SPECIFICITY VALIDATION (MANDATORY)
+
+Before EVERY ADD operation, apply this test:
+
+**Task-Specificity Test:**
+- Does this skill apply to a SPECIFIC type of task/problem? → PROCEED
+- Does this skill apply to ALL conversations? → REJECT (too generic)
+
+**Action-Outcome Test:**
+- Does this skill have a clear INPUT → ACTION → OUTCOME? → PROCEED
+- Is this a vague workflow pattern without outcomes? → REJECT
+
+**REJECTED skill examples:**
+✗ "Initialize project files at conversation start"
+✗ "Use PLANNING mode for complex tasks"
+✗ "Introduce yourself with project context"
+✗ "Read task.md to ground identity"
+✗ "Complete full PLANNING-EXECUTION-REVIEW cycle"
+
+**ACCEPTED skill examples:**
+✓ "Use pandas.read_csv() for CSV files over 1MB"
+✓ "Catch FileNotFoundError before read operations"
+✓ "Set API timeout to 30s for external calls"
+
 ### Strategy Format Rule
 Strategies must be IMPERATIVE COMMANDS, not observations.
 
@@ -397,7 +434,7 @@ class SkillManager:
         reflection: ReflectorOutput,
         skillbook: Skillbook,
         agent_name: str,
-        min_atomicity_score: float = 0.7,
+        min_atomicity_score: float = 0.85,
     ) -> List[UpdateOperation]:
         """
         Decide what updates to apply to the Skillbook.

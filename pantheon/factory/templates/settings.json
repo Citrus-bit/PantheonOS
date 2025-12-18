@@ -149,9 +149,9 @@
         "enable_agent_scope": true,
         // === Quality Control Thresholds ===
         // Minimum confidence to process reflection (skip if below)
-        "min_confidence_threshold": 0.3,
+        "min_confidence_threshold": 0.5,
         // Minimum atomicity score for ADD operations (reject if below)
-        "min_atomicity_score": 0.7
+        "min_atomicity_score": 0.85
     },
     // ===== Context Compression Configuration =====
     // Automatic context compression when approaching token limits

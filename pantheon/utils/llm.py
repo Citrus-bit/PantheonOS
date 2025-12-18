@@ -584,6 +584,41 @@ class TimingTracker:
             self.end(phase)
 
 
+def _fallback_token_count(text: str) -> int:
+    """Fallback token counter using tiktoken for unsupported models."""
+    try:
+        import tiktoken
+        enc = tiktoken.get_encoding("cl100k_base")
+        return len(enc.encode(text))
+    except Exception:
+        # Ultimate fallback: rough estimate (4 chars per token for English)
+        return len(text) // 4
+
+
+def _safe_token_counter(model: str, messages: list[dict] = None, tools: list[dict] = None) -> int:
+    """Token counter with fallback for unsupported models."""
+    try:
+        from litellm.utils import token_counter
+        return token_counter(model=model, messages=messages or [], tools=tools)
+    except Exception:
+        # Fallback: count tokens from message content
+        total = 0
+        for msg in (messages or []):
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                total += _fallback_token_count(content)
+            elif isinstance(content, list):
+                # Handle multimodal content
+                for part in content:
+                    if isinstance(part, dict) and "text" in part:
+                        total += _fallback_token_count(part["text"])
+        # Estimate tools tokens
+        if tools:
+            import json
+            total += _fallback_token_count(json.dumps(tools))
+        return total
+
+
 def count_tokens_in_messages(
     messages: list[dict], 
     model: str, 
@@ -595,7 +630,7 @@ def count_tokens_in_messages(
     Separates system prompt (first system message) and tools definition from other roles.
     """
     try:
-        from litellm.utils import get_model_info, token_counter
+        from litellm.utils import get_model_info
 
         total_tokens = 0
         tokens_by_role = {}
@@ -611,7 +646,7 @@ def count_tokens_in_messages(
         # 1. Count tokens for messages
         for i, msg in enumerate(msgs_to_count):
             role = msg.get("role", "unknown")
-            msg_tokens = token_counter(model=model, messages=[msg])
+            msg_tokens = _safe_token_counter(model=model, messages=[msg])
 
             # Check if this is the system prompt (first system message)
             if role == "system" and i == 0:
@@ -626,14 +661,18 @@ def count_tokens_in_messages(
         # 2. Count tokens for tools definition
         if tools:
             # litellm token_counter handles tools definition specifically
-            tools_definition_tokens = token_counter(model=model, messages=[], tools=tools)
+            tools_definition_tokens = _safe_token_counter(model=model, tools=tools)
             total_tokens += tools_definition_tokens
 
-        model_info = get_model_info(model)
+        # Try to get model info, fallback to defaults for unsupported models
+        try:
+            model_info = get_model_info(model)
+        except Exception:
+            model_info = {}  # Will use fallback defaults below
 
-        # Calculate usage metrics
-        max_input_tokens = model_info.get("max_input_tokens", 150000) or 150000
-        max_output_tokens = model_info.get("max_output_tokens", 150000) or 150000
+        # Calculate usage metrics (use conservative defaults for unknown models)
+        max_input_tokens = model_info.get("max_input_tokens") or 2_00_000  # 200K default
+        max_output_tokens = model_info.get("max_output_tokens") or 32_000  # 32K default
         max_tokens = max_input_tokens + max_output_tokens
         remaining = max(0, max_tokens - total_tokens)
         usage_percent = (
@@ -664,7 +703,7 @@ def count_tokens_in_messages(
              # Better approach: We know total_tokens. We can subtract target_message tokens if we knew them.
              # Actually, let's just use the simple heuristic: 
              # If target_message is assistant, its content is output.
-             output_tokens = token_counter(model=model, messages=[target_message])
+             output_tokens = _safe_token_counter(model=model, messages=[target_message])
         
         input_tokens = max(0, total_tokens - output_tokens)
         current_cost = round((input_tokens * input_cost_per_token) + (output_tokens * output_cost_per_token), 6)

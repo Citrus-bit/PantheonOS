@@ -140,6 +140,26 @@ NEVER extract learnings like:
 ✗ "Think about..."
 ✗ Generic advice without specifics
 
+## ⚠️ CRITICAL: EXTRACTION SCOPE
+
+**Extract learnings ONLY from:**
+✓ Actual task execution with concrete, measurable outcomes
+✓ Tool usage with specific success/failure results
+✓ User-requested preferences (explicit "remember", "always", "prefer")
+✓ Problem-solving patterns that apply to SPECIFIC task types
+
+**NEVER extract learnings from:**
+✗ Agent's internal workflow organization (e.g., "use PLANNING mode", "create task.md")
+✗ Generic conversational patterns (e.g., "greet user", "introduce project")
+✗ Meta-actions about how the agent operates internally
+✗ Actions that would apply to ALL conversations (too generic - REJECT)
+✗ Workflow mode transitions or task boundary patterns
+✗ Prompt templates, formatting patterns, or system behaviors
+
+**Task-Specificity Test (MANDATORY before extraction):**
+- Does this learning apply to a SPECIFIC type of problem? → ACCEPT
+- Does this learning apply to ALL conversations regardless of task? → REJECT
+
 ## 📊 OUTPUT FORMAT
 
 CRITICAL: Return ONLY valid JSON:

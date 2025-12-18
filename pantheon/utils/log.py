@@ -1,4 +1,5 @@
 import sys
+import warnings
 from contextlib import contextmanager
 from loguru import logger as loguru_logger
 
@@ -63,3 +64,26 @@ def disable_all():
     _logging_disabled = True
     loguru_logger.remove()
     loguru_logger.disable("pantheon")
+
+
+# =============================================================================
+# Warning Suppression
+# =============================================================================
+
+# Suppress aiohttp "Unclosed client session" warnings from litellm.
+# These warnings are harmless - the OS cleans up connections on process exit.
+warnings.filterwarnings("ignore", message="Unclosed client session", category=ResourceWarning)
+warnings.filterwarnings("ignore", message="Unclosed connector", category=ResourceWarning)
+
+
+def suppress_aiohttp_warnings(loop, context) -> None:
+    """Custom asyncio exception handler to suppress aiohttp cleanup warnings.
+    
+    aiohttp prints warnings via asyncio's exception handler during GC.
+    Use with: loop.set_exception_handler(suppress_aiohttp_warnings)
+    """
+    message = context.get("message", "")
+    if "Unclosed" in message:
+        return  # Suppress aiohttp cleanup warnings
+    # For other exceptions, use default handling
+    loop.default_exception_handler(context)
