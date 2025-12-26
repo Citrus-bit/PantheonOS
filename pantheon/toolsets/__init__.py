@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from .database_api import DatabaseAPIQueryToolSet
     from .task import TaskToolSet
     from .knowledge import KnowledgeToolSet
+    from .evolution import EvolutionToolSet, EvaluatorToolSet
 
 _TOOLSET_MAPPING = {
     "PythonInterpreterToolSet": ".python",
@@ -36,6 +37,8 @@ _TOOLSET_MAPPING = {
     "DatabaseAPIQueryToolSet": ".database_api",
     "TaskToolSet": ".task",
     "KnowledgeToolSet": ".knowledge",
+    "EvolutionToolSet": ".evolution",
+    "EvaluatorToolSet": ".evolution",
 }
 
 __all__ = list(_TOOLSET_MAPPING.keys())

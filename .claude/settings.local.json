@@ -19,7 +19,11 @@
       "Bash(micromamba run -n pantheon python -m pytest:*)",
       "Bash(micromamba run:*)",
       "Bash(grep:*)",
-      "Bash(timeout 5 micromamba run -n pantheon python:*)"
+      "Bash(timeout 5 micromamba run -n pantheon python:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(python evaluator.py:*)",
+      "Bash(pip install:*)",
+      "Bash(python:*)"
     ],
     "deny": [],
     "ask": []

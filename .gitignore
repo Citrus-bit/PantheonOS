@@ -202,3 +202,5 @@ cython_debug/
 
 workdir/
 backup/
+*.h5ad
+evolution_results/
