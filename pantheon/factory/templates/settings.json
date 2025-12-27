@@ -17,7 +17,7 @@
         // Whether to allow file transfer through Endpoint
         "allow_file_transfer": true,
         // Local ToolSet call timeout (seconds)
-        "local_toolset_timeout": 600,
+        "local_toolset_timeout": 1800,
         // Local ToolSet execution mode:
         // - "direct": Execute in current thread (fast, for lightweight tasks)
         // - "thread": Execute in separate thread (isolated, for heavy tasks)
@@ -146,7 +146,7 @@
     // Learning is a long-term memory system that learns from conversation trajectories
     "learning": {
         // Enable learning system (extract skills from trajectories of each user request/response run)
-        "enable_learning": true,
+        "enable_learning": false,
         // Enable skill injection into agent prompts (defaults to enable_learning if omitted)
         "enable_injection": true,
         // Learning mode: "pipeline" (default, lightweight) or "team" (multi-agent)
