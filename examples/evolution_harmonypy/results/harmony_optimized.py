@@ -15,7 +15,7 @@ This implementation is designed to be optimized by Pantheon Evolution.
 
 import numpy as np
 from sklearn.cluster import KMeans
-from typing import Optional, Tuple, List
+from typing import Optional
 
 
 class Harmony:
@@ -69,9 +69,16 @@ class Harmony:
         self.Z_orig = None
         self.Z_corr = None
         self.R = None
-        self.Y = None  # Cluster centroids
-        self.Phi = None  # Batch membership matrix
+        self.Y = None  # Cluster centroids (n_features x n_clusters)
+        self.Phi = None  # Batch membership matrix (n_batches x n_cells)
         self.objectives = []
+
+        # Cached / precomputed for performance
+        self._design = None          # (n_cells x n_covariates), covariates = intercept + (n_batches-1)
+        self._design_T = None        # transpose view
+        self._I_ridge = None         # ridge identity matrix (n_covariates x n_covariates)
+        self._sigma_inv = None       # 1/sigma
+        self._expected_batch = None  # (1 x n_batches)
 
     def fit(
         self,
@@ -97,12 +104,25 @@ class Harmony:
         # Create batch membership matrix (one-hot encoding)
         unique_batches = np.unique(batch_labels)
         n_batches = len(unique_batches)
-        self.Phi = np.zeros((n_batches, n_cells))
+        self.Phi = np.zeros((n_batches, n_cells), dtype=np.float64)
         for i, batch in enumerate(unique_batches):
-            self.Phi[i, batch_labels == batch] = 1
+            self.Phi[i, batch_labels == batch] = 1.0
 
         # Compute batch proportions
         self.batch_props = self.Phi.sum(axis=1) / n_cells
+        self._expected_batch = self.batch_props[np.newaxis, :]  # (1 x n_batches)
+
+        # Precompute design matrix once: intercept + batch indicators (drop first)
+        # design: (n_cells x (1 + n_batches - 1)) = (n_cells x n_batches)
+        self._design = np.empty((n_cells, n_batches), dtype=np.float64)
+        self._design[:, 0] = 1.0
+        if n_batches > 1:
+            self._design[:, 1:] = self.Phi[1:, :].T
+        self._design_T = self._design.T
+
+        # Cache ridge identity and sigma inverse
+        self._I_ridge = np.eye(self._design.shape[1], dtype=np.float64)
+        self._sigma_inv = 1.0 / float(self.sigma)
 
         # Initialize clusters
         self._init_clusters()
@@ -168,38 +188,32 @@ class Harmony:
 
     def _update_R(self):
         """Update soft cluster assignments with diversity penalty."""
-        n_cells = self.Z_corr.shape[0]
-
-        # Compute distances to centroids
-        # dist[k, i] = ||z_i - y_k||^2
+        # Compute distances to centroids: dist (n_clusters x n_cells)
         dist = self._compute_distances()
 
         # Soft assignments (before diversity correction)
-        R = np.exp(-dist / self.sigma)
+        # Use cached 1/sigma to avoid division in hot path
+        R = np.exp(-dist * self._sigma_inv)
 
         # Apply diversity penalty
         # Penalize clusters that are dominated by a single batch
         if self.theta > 0:
-            # Compute expected batch proportions per cluster
-            # O[b, k] = sum_i(R[k,i] * Phi[b,i]) / sum_i(R[k,i])
             R_sum = R.sum(axis=1, keepdims=True) + 1e-8
             O = (R @ self.Phi.T) / R_sum  # (n_clusters x n_batches)
 
-            # Diversity penalty
-            # penalty[k] = sum_b(theta * O[k,b] * log(O[k,b] / batch_props[b]))
-            expected = self.batch_props[np.newaxis, :]  # (1 x n_batches)
+            # penalty[k] = theta * KL(O_k || expected)
+            expected = self._expected_batch
             penalty = self.theta * np.sum(
                 O * np.log((O + 1e-8) / (expected + 1e-8)),
                 axis=1,
                 keepdims=True,
             )
 
-            # Apply penalty
-            R = R * np.exp(-penalty)
+            # Apply penalty (broadcast to cells)
+            R *= np.exp(-penalty)
 
         # Normalize to get probabilities
-        R = R / (R.sum(axis=0, keepdims=True) + 1e-8)
-
+        R /= (R.sum(axis=0, keepdims=True) + 1e-8)
         self.R = R
 
     def _compute_distances(self) -> np.ndarray:
@@ -214,47 +228,38 @@ class Harmony:
 
     def _correct(self):
         """Apply linear correction to remove batch effects."""
-        n_cells = self.Z_corr.shape[0]
-        n_features = self.Z_corr.shape[1]
-        n_batches = self.Phi.shape[0]
+        # Precomputed design: intercept + (n_batches-1) indicators, with reference batch dropped
+        design = self._design
+        design_T = self._design_T
+        I_ridge = self._I_ridge
+        Z = self.Z_corr
 
         # For each cluster, compute and apply correction
+        # Implement weighted ridge without forming diag(W):
+        # X'WX = X' (w * X), X'WZ = X' (w * Z)
         for k in range(self.n_clusters):
-            # Get cells in this cluster (soft membership)
-            weights = self.R[k, :]  # (n_cells,)
-
-            # Skip if cluster is empty
-            if weights.sum() < 1e-8:
+            w = self.R[k, :]  # (n_cells,)
+            w_sum = float(w.sum())
+            if w_sum < 1e-8:
                 continue
 
-            # Weighted design matrix: [1, Phi.T] with weights
-            # We want to regress out batch effects
-            W = np.diag(weights)
+            # Weighted design and response
+            Xw = design * w[:, None]          # (n_cells x n_cov)
+            XWX = design_T @ Xw               # (n_cov x n_cov)
+            XWX += self.lamb * I_ridge
 
-            # Design matrix: intercept + batch indicators (drop first for identifiability)
-            design = np.vstack([
-                np.ones(n_cells),
-                self.Phi[1:, :],  # Drop first batch as reference
-            ]).T  # (n_cells x n_batches)
-
-            # Weighted least squares with ridge penalty
-            # beta = (X'WX + lambda*I)^-1 X'WZ
-            XWX = design.T @ W @ design
-            XWX += self.lamb * np.eye(XWX.shape[0])
-
-            XWZ = design.T @ W @ self.Z_corr
+            Z_w = Z * w[:, None]              # (n_cells x n_features)
+            XWZ = design_T @ Z_w              # (n_cov x n_features)
 
             try:
                 beta = np.linalg.solve(XWX, XWZ)
             except np.linalg.LinAlgError:
                 continue
 
-            # Remove batch effects (keep intercept)
-            # Z_corr = Z - Phi.T @ beta[1:, :]
-            batch_effect = design[:, 1:] @ beta[1:, :]
-
-            # Apply correction weighted by cluster membership
-            self.Z_corr -= weights[:, np.newaxis] * batch_effect
+            # Remove batch effects (keep intercept): effect = X[:,1:] @ beta[1:,:]
+            if beta.shape[0] > 1:
+                batch_effect = design[:, 1:] @ beta[1:, :]
+                Z -= w[:, None] * batch_effect
 
     def _compute_objective(self) -> float:
         """Compute the Harmony objective function."""

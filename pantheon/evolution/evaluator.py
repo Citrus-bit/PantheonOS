@@ -98,6 +98,7 @@ class HybridEvaluator:
                     name="code-reviewer",
                     instructions=CODE_REVIEWER_PROMPT,
                     model="normal",
+                    use_memory=False,  # Prevent context accumulation across iterations
                 )
             except ImportError:
                 logger.warning("Agent not available, LLM feedback disabled")
@@ -132,34 +133,21 @@ class HybridEvaluator:
                 # Write code to workspace
                 program.snapshot.to_workspace(workspace)
 
-                # Run evaluations in parallel
-                tasks = []
-
-                if self.function_weight > 0:
-                    tasks.append(self._run_function_evaluation(workspace))
-
-                if self.llm_weight > 0:
-                    tasks.append(self._get_llm_feedback(program))
-
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                # Process results
+                # Run function evaluation first to get metrics
                 func_result: Dict[str, Any] = {}
-                llm_result: Dict[str, Any] = {}
-
-                idx = 0
                 if self.function_weight > 0:
-                    if isinstance(results[idx], Exception):
-                        func_result = {"error": str(results[idx])}
-                    else:
-                        func_result = results[idx]
-                    idx += 1
+                    try:
+                        func_result = await self._run_function_evaluation(workspace)
+                    except Exception as e:
+                        func_result = {"error": str(e)}
 
+                # Run LLM feedback with current metrics (so it can see both parent and current)
+                llm_result: Dict[str, Any] = {}
                 if self.llm_weight > 0:
-                    if isinstance(results[idx], Exception):
-                        llm_result = {"error": str(results[idx])}
-                    else:
-                        llm_result = results[idx]
+                    try:
+                        llm_result = await self._get_llm_feedback(program, func_result)
+                    except Exception as e:
+                        llm_result = {"error": str(e)}
 
                 # Calculate combined score
                 func_score = func_result.get("combined_score", 0.0)
@@ -338,12 +326,17 @@ except Exception as e:
         except Exception as e:
             return {"error": str(e), "combined_score": 0.0}
 
-    async def _get_llm_feedback(self, program: Program) -> Dict[str, Any]:
+    async def _get_llm_feedback(
+        self,
+        program: Program,
+        current_metrics: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """
         Get LLM feedback on the code.
 
         Args:
             program: Program to analyze
+            current_metrics: Metrics from current evaluation (this round)
 
         Returns:
             Dict with score, issues, suggestions, summary
@@ -353,6 +346,34 @@ except Exception as e:
             return {"score": 50, "summary": "LLM feedback not available"}
 
         try:
+            # Build parent metrics section (from previous round)
+            parent_metrics_str = ""
+            if program.metrics:
+                metrics_lines = [
+                    f"  - {k}: {v:.4f}"
+                    for k, v in sorted(program.metrics.items())
+                    if isinstance(v, (int, float))
+                ]
+                if metrics_lines:
+                    parent_metrics_str = (
+                        "## Parent Program Metrics (Previous Round)\n"
+                        + "\n".join(metrics_lines)
+                    )
+
+            # Build current metrics section (this round)
+            current_metrics_str = ""
+            if current_metrics:
+                metrics_lines = [
+                    f"  - {k}: {v:.4f}"
+                    for k, v in sorted(current_metrics.items())
+                    if isinstance(v, (int, float)) and k != "error"
+                ]
+                if metrics_lines:
+                    current_metrics_str = (
+                        "## Current Evaluation Metrics (This Round)\n"
+                        + "\n".join(metrics_lines)
+                    )
+
             # Build code summary - use full code if no limit is set
             if self.feedback_max_lines_per_file is None:
                 # No limit: include full code for all files
@@ -365,8 +386,12 @@ except Exception as e:
                     max_files=5, max_lines_per_file=self.feedback_max_lines_per_file
                 )
 
-            # Build prompt
+            # Build prompt with metrics
             prompt = f"""Analyze this codebase and provide feedback:
+
+{parent_metrics_str}
+
+{current_metrics_str}
 
 {code_summary}
 
@@ -375,11 +400,11 @@ except Exception as e:
 {program.diff_from_parent[:3000] if program.diff_from_parent else "Initial version"}
 ```
 
-Provide your assessment in JSON format with:
+Based on the metrics comparison and code changes, provide your assessment in JSON format with:
 - score: 0-100 quality score
 - issues: list of specific issues found
 - suggestions: list of improvement suggestions
-- summary: brief overall assessment
+- summary: brief overall assessment (reference metric changes if applicable)
 """
 
             response = await asyncio.wait_for(

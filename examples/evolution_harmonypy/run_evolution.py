@@ -69,6 +69,8 @@ async def run_evolution(
         evaluation_timeout=120,
         feature_dimensions=["mixing_score", "speed_score", "bio_conservation_score"],  # Use evaluation metrics as features
         early_stop_generations=200,  # Don't stop early, run full iterations
+        function_weight=1.0,  # Only use function-based evaluation
+        llm_weight=0.0,  # Disable LLM feedback
         # Use system default model (configured via environment)
         log_level="DEBUG" if verbose else "INFO",
         log_iterations=True,

@@ -1,6 +1,6 @@
 {
   "config": {
-    "max_iterations": 40,
+    "max_iterations": 20,
     "checkpoint_interval": 10,
     "early_stop_generations": 200,
     "num_workers": 4,
@@ -9,12 +9,13 @@
     "migration_rate": 0.1,
     "feature_dimensions": [
       "mixing_score",
-      "speed_score"
+      "speed_score",
+      "bio_conservation_score"
     ],
     "feature_bins": 10,
     "feature_range_padding": 0.1,
     "feature_range_adaptive": true,
-    "archive_size": 100,
+    "archive_ratio": 0.25,
     "population_size": 500,
     "num_inspirations": 2,
     "num_top_programs": 3,
@@ -22,8 +23,8 @@
     "exploitation_ratio": 0.7,
     "evaluation_timeout": 120,
     "max_parallel_evaluations": 2,
-    "function_weight": 0.8,
-    "llm_weight": 0.2,
+    "function_weight": 1.0,
+    "llm_weight": 0.0,
     "cascade_evaluation": false,
     "cascade_thresholds": [
       0.3,
@@ -47,110 +48,58 @@
     "log_iterations": true,
     "log_improvements": true
   },
-  "best_program_id": "456d9af3",
+  "best_program_id": "deceb23c",
   "archive": [
-    "ffc6927d",
-    "b0ac04b8",
-    "456d9af3",
-    "a745872f",
-    "5c130f1b",
-    "906df239",
-    "ddbbd794",
-    "8ee40727",
-    "5e147c80",
-    "c8135fad",
-    "79494233",
-    "3c087a03",
-    "fb198f46",
-    "2f229b10",
-    "322935f5",
-    "06f79719",
-    "e132d741",
-    "b69b5514",
-    "d00d33ae",
-    "a269f31b",
-    "6011c6c6",
-    "aa324e2c",
-    "e61b007e",
-    "edf2aa84",
-    "5b636928",
-    "18c64b96",
-    "519c5d7a",
-    "f905ac93",
-    "740823af",
-    "a6c67436",
-    "7e44c84f",
-    "faf78eb9",
-    "a4eab321",
-    "f59041bb",
-    "559a49e9",
-    "dad2d4f1",
-    "7a566e16",
-    "bcad6f0f",
-    "186713ce",
-    "4842a432",
-    "73eb6567"
+    "c18af860",
+    "87172a7b",
+    "deceb23c",
+    "e91d34e5",
+    "ae95fadb"
   ],
   "islands": [
     [
-      "c8135fad",
-      "79494233",
-      "ffc6927d",
-      "5e147c80",
-      "faf78eb9",
-      "2f229b10",
-      "322935f5",
-      "f59041bb",
-      "dad2d4f1",
-      "7a566e16",
-      "e132d741",
-      "5c130f1b",
-      "186713ce",
-      "a269f31b",
-      "73eb6567"
+      "c18af860",
+      "fbbc9913",
+      "76f04167",
+      "5c281e6e",
+      "d7da42b6",
+      "f70bc119"
     ],
     [
-      "3c087a03",
-      "b0ac04b8",
-      "5b636928",
-      "fb198f46",
-      "519c5d7a",
-      "a4eab321",
-      "18c64b96",
-      "bcad6f0f",
-      "aa324e2c",
-      "906df239",
-      "d00d33ae",
-      "4842a432",
-      "6011c6c6",
-      "8ee40727"
+      "07da663d",
+      "4f8e1a1b",
+      "f4ea9e52"
     ],
     [
-      "edf2aa84",
-      "740823af",
-      "456d9af3",
-      "a745872f",
-      "a6c67436",
-      "7e44c84f",
-      "559a49e9",
-      "06f79719",
-      "b69b5514",
-      "f905ac93",
-      "ddbbd794",
-      "e61b007e"
+      "80d63259",
+      "abf827f2",
+      "35806050",
+      "54b76738",
+      "77e1c777",
+      "66beb2b3",
+      "87172a7b",
+      "deceb23c",
+      "3677a3a5",
+      "e91d34e5",
+      "ae95fadb",
+      "aad6f8de"
     ]
   ],
-  "total_added": 41,
-  "total_improved": 6,
+  "total_added": 21,
+  "total_improved": 1,
   "feature_ranges": {
     "mixing_score": [
       0.5,
-      0.8486830924892459
+      0.8397501749844745
     ],
     "speed_score": [
       0.5,
-      0.9784678034173439
+      0.9782715376735525
+    ],
+    "bio_conservation_score": [
+      0.5,
+      1.0
     ]
   },
-  "next_order": 41
+  "next_order": 21
 }

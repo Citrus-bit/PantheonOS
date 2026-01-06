@@ -174,8 +174,18 @@ class EvolutionPromptBuilder:
 
     def _build_current_program_section(self, program: Program) -> str:
         """Build the current program section."""
-        fitness = program.metrics.get("combined_score", 0)
-        parts = [f"## Current Program (Score: {fitness:.4f})"]
+        combined = program.metrics.get("combined_score", 0)
+        parts = [f"## Current Program (Combined Score: {combined:.4f})"]
+
+        # Show all detailed metrics
+        if program.metrics:
+            metrics_lines = []
+            for key, value in sorted(program.metrics.items()):
+                if key != "combined_score" and isinstance(value, (int, float)):
+                    metrics_lines.append(f"  - {key}: {value:.4f}")
+            if metrics_lines:
+                parts.append("\nDetailed Metrics:")
+                parts.extend(metrics_lines)
 
         # Add file listing
         parts.append(f"\nFiles: {program.file_count()} | Lines: {program.total_lines()}")
@@ -194,8 +204,18 @@ class EvolutionPromptBuilder:
         parts.append("Learn from these high-scoring examples:\n")
 
         for i, prog in enumerate(programs[: self.max_top_programs]):
-            fitness = prog.metrics.get("combined_score", 0)
-            parts.append(f"### #{i+1} (Score: {fitness:.4f})")
+            combined = prog.metrics.get("combined_score", 0)
+            parts.append(f"### #{i+1} (Combined Score: {combined:.4f})")
+
+            # Show detailed metrics
+            if prog.metrics:
+                metrics_lines = []
+                for key, value in sorted(prog.metrics.items()):
+                    if key != "combined_score" and isinstance(value, (int, float)):
+                        metrics_lines.append(f"  - {key}: {value:.4f}")
+                if metrics_lines:
+                    parts.append("Metrics:")
+                    parts.extend(metrics_lines)
 
             # Show key differences or summary
             if prog.diff_from_parent:
@@ -214,8 +234,18 @@ class EvolutionPromptBuilder:
         parts.append("Consider these alternative approaches:\n")
 
         for i, prog in enumerate(programs[: self.max_inspirations]):
-            fitness = prog.metrics.get("combined_score", 0)
-            parts.append(f"### Inspiration {i+1} (Score: {fitness:.4f})")
+            combined = prog.metrics.get("combined_score", 0)
+            parts.append(f"### Inspiration {i+1} (Combined Score: {combined:.4f})")
+
+            # Show detailed metrics
+            if prog.metrics:
+                metrics_lines = []
+                for key, value in sorted(prog.metrics.items()):
+                    if key != "combined_score" and isinstance(value, (int, float)):
+                        metrics_lines.append(f"  - {key}: {value:.4f}")
+                if metrics_lines:
+                    parts.append("Metrics:")
+                    parts.extend(metrics_lines)
 
             # Show structural summary
             summary = prog.snapshot.to_summary(max_files=2, max_lines_per_file=20)
