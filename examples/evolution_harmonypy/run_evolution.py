@@ -63,25 +63,32 @@ async def run_evolution(
     initial_code = CodebaseSnapshot.from_single_file("harmony.py", harmony_path.read_text())
     evaluator_code = evaluator_path.read_text()
 
-    # Create configuration
-    config = EvolutionConfig(
-        max_iterations=iterations,
-        num_workers=4,  # Parallel workers for evolution
-        num_islands=3,
-        num_inspirations=2,
-        num_top_programs=3,
-        max_parallel_evaluations=2,
-        evaluation_timeout=120,
-        feature_dimensions=["mixing_score", "speed_score", "bio_conservation_score"],  # Use evaluation metrics as features
-        early_stop_generations=200,  # Don't stop early, run full iterations
-        function_weight=1.0,  # Only use function-based evaluation
-        llm_weight=0.0,  # Disable LLM feedback
-        # Use system default model (configured via environment)
-        log_level="DEBUG" if verbose else "INFO",
-        log_iterations=True,
-        checkpoint_interval=10,
-        db_path=output_dir,
-    )
+    # Load configuration from file if output_dir has config.yaml, otherwise create default
+    config_path = Path(output_dir) / "config.yaml" if output_dir else None
+    if config_path and config_path.exists():
+        config = EvolutionConfig.from_yaml(str(config_path))
+        config.max_iterations = iterations  # Override with command line arg
+        config.log_level = "DEBUG" if verbose else "INFO"
+        print(f"Loaded config from: {config_path}")
+    else:
+        # Create default configuration
+        config = EvolutionConfig(
+            max_iterations=iterations,
+            num_workers=4,  # Parallel workers for evolution
+            num_islands=3,
+            num_inspirations=2,
+            num_top_programs=3,
+            max_parallel_evaluations=2,
+            evaluation_timeout=120,
+            feature_dimensions=["mixing_score", "speed_score", "bio_conservation_score"],
+            early_stop_generations=200,
+            function_weight=1.0,
+            llm_weight=0.0,
+            log_level="DEBUG" if verbose else "INFO",
+            log_iterations=True,
+            checkpoint_interval=10,
+            db_path=output_dir,
+        )
 
     # Define optimization objective
     objective = """Optimize the Harmony algorithm implementation for:

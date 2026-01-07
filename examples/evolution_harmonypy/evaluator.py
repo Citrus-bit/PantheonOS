@@ -111,6 +111,30 @@ def load_pbmc_data(
     return X_train, batch_train, X_val, batch_val
 
 
+def load_tma_data(
+    data_dir: Path,
+    split: str = "train",
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Load TMA data with real cell type labels.
+
+    Args:
+        data_dir: Directory containing the data files
+        split: Which split to load ("train", "val", or "test")
+
+    Returns:
+        X: Features (n_cells x 30)
+        batch_labels: Batch labels (donor)
+        celltype_labels: True cell type labels
+    """
+    df = pd.read_csv(data_dir / f"tma_8000_{split}.csv")
+    X = df.iloc[:, :30].values  # PC1-PC30
+    batch_labels = df["donor"].values
+    celltype_labels = df["celltype"].values
+
+    return X, batch_labels, celltype_labels
+
+
 def generate_pseudo_labels(X: np.ndarray, n_clusters: int = 5) -> np.ndarray:
     """
     Generate pseudo cell type labels using K-means clustering.
@@ -186,35 +210,25 @@ def compute_bio_conservation_score(
     true_labels: np.ndarray,
 ) -> float:
     """
-    Compute biological structure conservation score.
+    Compute biological structure conservation score using silhouette score.
 
-    Measures how well the biological clusters are preserved after correction.
+    Measures how well the biological clusters are separated after correction.
+    Higher silhouette = better separation of cell types.
 
     Args:
         X_corrected: Corrected embedding
-        X_original: Original embedding
-        true_labels: True biological labels
+        X_original: Original embedding (unused, kept for API compatibility)
+        true_labels: True biological labels (cell types)
 
     Returns:
-        Conservation score in [0, 1]
+        Silhouette score normalized to [0, 1]
     """
     try:
-        # Silhouette score on corrected data
         if len(np.unique(true_labels)) > 1:
-            silhouette_corrected = silhouette_score(X_corrected, true_labels)
-            silhouette_original = silhouette_score(X_original, true_labels)
-
-            # Normalize to [0, 1] (silhouette is in [-1, 1])
-            score_corrected = (silhouette_corrected + 1) / 2
-            score_original = (silhouette_original + 1) / 2
-
-            # We want corrected to be at least as good as original
-            # Bonus if it's better, penalty if worse
-            if score_original > 0:
-                ratio = score_corrected / score_original
-                return min(1.0, ratio)
-            else:
-                return score_corrected
+            # Compute silhouette score on corrected data
+            silhouette = silhouette_score(X_corrected, true_labels)
+            # Normalize from [-1, 1] to [0, 1]
+            return (silhouette + 1) / 2
         else:
             return 0.5
     except Exception:
@@ -250,9 +264,10 @@ def compute_convergence_score(objectives: list) -> float:
 
 def evaluate(workspace_path: str) -> Dict[str, Any]:
     """
-    Evaluate the Harmony implementation.
+    Evaluate the Harmony implementation on TMA training data.
 
     This is the main evaluation function called by Pantheon Evolution.
+    Uses real cell type labels for accurate biological conservation scoring.
 
     Args:
         workspace_path: Path to the workspace containing harmony.py
@@ -281,36 +296,28 @@ def evaluate(workspace_path: str) -> Dict[str, Any]:
             "error": f"Failed to load harmony.py: {e}",
         }
 
-    # Load real PBMC data
+    # Load TMA training data with real cell type labels
     # HARMONY_DATA_DIR must be set by the caller (run_evolution.py) since
     # this evaluator runs in a temp workspace where __file__ is not reliable
     import os
     data_dir = Path(os.environ.get("HARMONY_DATA_DIR", "data"))
 
     try:
-        X_train, batch_train, X_val, batch_val = load_pbmc_data(data_dir)
+        X_train, batch_train, celltype_train = load_tma_data(data_dir, split="train")
     except Exception as e:
         return {
             "combined_score": 0.0,
-            "error": f"Failed to load PBMC data: {e}",
+            "error": f"Failed to load TMA data: {e}",
         }
 
-    n_train = len(X_train)
-    n_val = len(X_val)
+    n_cells = len(X_train)
 
-    # Generate pseudo labels on original (uncorrected) train data
-    pseudo_labels_train = generate_pseudo_labels(X_train, n_clusters=5)
-
-    # Merge train + val for Harmony
-    X_all = np.vstack([X_train, X_val])
-    batch_all = np.concatenate([batch_train, batch_val])
-
-    # Run harmony and measure time
+    # Run harmony on training data and measure time
     try:
         start_time = time.time()
         hm = harmony_module.run_harmony(
-            X_all,
-            batch_all,
+            X_train,
+            batch_train,
             n_clusters=50,
             max_iter=10,
             random_state=42,
@@ -326,22 +333,15 @@ def evaluate(workspace_path: str) -> Dict[str, Any]:
             "error": f"Harmony execution failed: {e}",
         }
 
-    # Split corrected data back to train and val
-    X_corr_train = X_corrected[:n_train]
-    X_corr_val = X_corrected[n_train:]
-
-    # Compute metrics on TRAINING set only (for evolution)
-    # Validation set is reserved for final evaluation after evolution
+    # Compute metrics on training data using real cell type labels
     try:
-        # Batch mixing on train data (higher = better, weight: 0.4)
-        mixing_score = compute_batch_mixing_score(X_corr_train, batch_train)
+        # Batch mixing (higher = better, weight: 0.4)
+        mixing_score = compute_batch_mixing_score(X_corrected, batch_train)
 
-        # Biological conservation on train data (higher = better, weight: 0.3)
-        # Using pseudo labels from clustering on original train data
-        bio_score = compute_bio_conservation_score(X_corr_train, X_train, pseudo_labels_train)
+        # Biological conservation using REAL cell type labels (weight: 0.3)
+        bio_score = compute_bio_conservation_score(X_corrected, X_train, celltype_train)
 
         # Speed score (faster = better, weight: 0.2)
-        # Baseline ~1 second, reward sub-second
         speed_score = 1.0 / (1 + execution_time)
 
         # Convergence score (weight: 0.1)
@@ -363,8 +363,8 @@ def evaluate(workspace_path: str) -> Dict[str, Any]:
             "convergence_score": conv_score,
             "execution_time": execution_time,
             "iterations": len(objectives),
-            "n_train": n_train,
-            "n_val": n_val,
+            "n_cells": n_cells,
+            "dataset": "tma_train",
         }
 
     except Exception as e:
@@ -374,18 +374,16 @@ def evaluate(workspace_path: str) -> Dict[str, Any]:
         }
 
 
-def evaluate_on_validation(workspace_path: str) -> Dict[str, Any]:
+def _evaluate_on_split(workspace_path: str, split: str) -> Dict[str, Any]:
     """
-    Evaluate the Harmony implementation on the VALIDATION set.
-
-    This function should be used AFTER evolution is complete to evaluate
-    the final selected program on held-out data.
+    Evaluate the Harmony implementation on a specific TMA data split.
 
     Args:
         workspace_path: Path to the workspace containing harmony.py
+        split: Which split to evaluate on ("train", "val", or "test")
 
     Returns:
-        Dictionary with validation metrics
+        Dictionary with metrics
     """
     workspace = Path(workspace_path)
 
@@ -393,7 +391,7 @@ def evaluate_on_validation(workspace_path: str) -> Dict[str, Any]:
     harmony_path = workspace / "harmony.py"
     if not harmony_path.exists():
         return {
-            "val_combined_score": 0.0,
+            "combined_score": 0.0,
             "error": "harmony.py not found",
         }
 
@@ -404,38 +402,30 @@ def evaluate_on_validation(workspace_path: str) -> Dict[str, Any]:
         spec.loader.exec_module(harmony_module)
     except Exception as e:
         return {
-            "val_combined_score": 0.0,
+            "combined_score": 0.0,
             "error": f"Failed to load harmony.py: {e}",
         }
 
-    # Load real PBMC data
+    # Load TMA data
     import os
     data_dir = Path(os.environ.get("HARMONY_DATA_DIR", "data"))
 
     try:
-        X_train, batch_train, X_val, batch_val = load_pbmc_data(data_dir)
+        X, batch_labels, celltype_labels = load_tma_data(data_dir, split=split)
     except Exception as e:
         return {
-            "val_combined_score": 0.0,
-            "error": f"Failed to load PBMC data: {e}",
+            "combined_score": 0.0,
+            "error": f"Failed to load TMA {split} data: {e}",
         }
 
-    n_train = len(X_train)
-    n_val = len(X_val)
-
-    # Generate pseudo labels on original validation data
-    pseudo_labels_val = generate_pseudo_labels(X_val, n_clusters=5)
-
-    # Merge train + val for Harmony
-    X_all = np.vstack([X_train, X_val])
-    batch_all = np.concatenate([batch_train, batch_val])
+    n_cells = len(X)
 
     # Run harmony
     try:
         start_time = time.time()
         hm = harmony_module.run_harmony(
-            X_all,
-            batch_all,
+            X,
+            batch_labels,
             n_clusters=50,
             max_iter=10,
             random_state=42,
@@ -447,51 +437,73 @@ def evaluate_on_validation(workspace_path: str) -> Dict[str, Any]:
 
     except Exception as e:
         return {
-            "val_combined_score": 0.0,
+            "combined_score": 0.0,
             "error": f"Harmony execution failed: {e}",
         }
 
-    # Split corrected data
-    X_corr_train = X_corrected[:n_train]
-    X_corr_val = X_corrected[n_train:]
-
-    # Compute metrics on VALIDATION set
+    # Compute metrics using real cell type labels
     try:
-        # Batch mixing on validation data
-        val_mixing_score = compute_batch_mixing_score(X_corr_val, batch_val)
-
-        # Biological conservation on validation data
-        val_bio_score = compute_bio_conservation_score(X_corr_val, X_val, pseudo_labels_val)
-
-        # Speed score
+        mixing_score = compute_batch_mixing_score(X_corrected, batch_labels)
+        bio_score = compute_bio_conservation_score(X_corrected, X, celltype_labels)
         speed_score = 1.0 / (1 + execution_time)
-
-        # Convergence score
         conv_score = compute_convergence_score(objectives)
 
-        # Combined score (same weights as training)
-        val_combined_score = (
-            0.4 * val_mixing_score +
-            0.3 * val_bio_score +
+        combined_score = (
+            0.4 * mixing_score +
+            0.3 * bio_score +
             0.2 * speed_score +
             0.1 * conv_score
         )
 
         return {
-            "val_combined_score": val_combined_score,
-            "val_mixing_score": val_mixing_score,
-            "val_bio_conservation_score": val_bio_score,
+            "combined_score": combined_score,
+            "mixing_score": mixing_score,
+            "bio_conservation_score": bio_score,
             "speed_score": speed_score,
             "convergence_score": conv_score,
             "execution_time": execution_time,
-            "n_val": n_val,
+            "iterations": len(objectives),
+            "n_cells": n_cells,
+            "dataset": f"tma_{split}",
         }
 
     except Exception as e:
         return {
-            "val_combined_score": 0.1,
+            "combined_score": 0.1,
             "error": f"Metric computation failed: {e}",
         }
+
+
+def evaluate_on_validation(workspace_path: str) -> Dict[str, Any]:
+    """
+    Evaluate the Harmony implementation on the TMA VALIDATION set.
+
+    This function should be used AFTER evolution is complete to evaluate
+    the final selected program on held-out data.
+
+    Args:
+        workspace_path: Path to the workspace containing harmony.py
+
+    Returns:
+        Dictionary with validation metrics
+    """
+    return _evaluate_on_split(workspace_path, "val")
+
+
+def evaluate_on_test(workspace_path: str) -> Dict[str, Any]:
+    """
+    Evaluate the Harmony implementation on the TMA TEST set.
+
+    This function should be used for final evaluation after all
+    hyperparameter tuning is complete.
+
+    Args:
+        workspace_path: Path to the workspace containing harmony.py
+
+    Returns:
+        Dictionary with test metrics
+    """
+    return _evaluate_on_split(workspace_path, "test")
 
 
 if __name__ == "__main__":
@@ -502,7 +514,7 @@ if __name__ == "__main__":
     workspace = os.path.dirname(os.path.abspath(__file__))
 
     print("=" * 60)
-    print("Harmony Evaluator Test (Real PBMC Data)")
+    print("Harmony Evaluator Test (TMA Data with Real Cell Types)")
     print("=" * 60)
     print(f"Workspace: {workspace}")
 
@@ -525,6 +537,19 @@ if __name__ == "__main__":
     print("-" * 60)
     val_result = evaluate_on_validation(workspace)
     for key, value in val_result.items():
+        if isinstance(value, float):
+            print(f"  {key}: {value:.4f}")
+        elif isinstance(value, int):
+            print(f"  {key}: {value}")
+        else:
+            print(f"  {key}: {value}")
+
+    # Test set evaluation (final evaluation)
+    print("\n" + "-" * 60)
+    print("TEST SET Evaluation (final evaluation):")
+    print("-" * 60)
+    test_result = evaluate_on_test(workspace)
+    for key, value in test_result.items():
         if isinstance(value, float):
             print(f"  {key}: {value:.4f}")
         elif isinstance(value, int):
