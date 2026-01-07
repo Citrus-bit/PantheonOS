@@ -220,8 +220,10 @@ class EvolutionVisualizer:
         programs_data = {}
 
         for prog_id, prog in self.programs.items():
+            order = prog.order if prog.order is not None else -1
             programs_data[prog_id] = {
                 "id": prog_id,
+                "order": order,
                 "parent_id": prog.parent_id,
                 "generation": prog.generation,
                 "island_id": prog.island_id,
@@ -600,6 +602,24 @@ class EvolutionVisualizer:
             color: #484f58;
         }}
 
+        .path-analysis {{
+            margin: 15px 0;
+            background: #161b22;
+            border-radius: 6px;
+        }}
+
+        .path-analysis-header {{
+            padding: 10px 15px;
+            background: #21262d;
+            color: #8b949e;
+            font-size: 0.9em;
+            font-weight: 500;
+        }}
+
+        #path-chart-container {{
+            padding: 10px 15px 15px 15px;
+        }}
+
         .close-btn {{
             background: #21262d;
             border: 1px solid #30363d;
@@ -641,6 +661,34 @@ class EvolutionVisualizer:
             margin-top: 20px;
             border-radius: 6px;
             overflow: hidden;
+        }}
+
+        /* Fix diff2html overflow */
+        #tab-diff {{
+            overflow: auto;
+        }}
+
+        .diff-container .d2h-wrapper {{
+            overflow: visible;
+        }}
+
+        .diff-container .d2h-file-wrapper {{
+            border: none;
+            margin-bottom: 0;
+        }}
+
+        .diff-container .d2h-file-diff {{
+            overflow: visible;
+        }}
+
+        .diff-container .d2h-diff-table {{
+            width: 100%;
+        }}
+
+        /* Ensure line numbers don't have sticky positioning */
+        .diff-container .d2h-code-linenumber,
+        .diff-container .d2h-code-side-linenumber {{
+            position: static !important;
         }}
 
         .diff-container h4 {{
@@ -723,8 +771,6 @@ class EvolutionVisualizer:
         .file-content {{
             display: flex;
             background: #0d1117;
-            max-height: 500px;
-            overflow: auto;
         }}
 
         .file-content .line-numbers {{
@@ -737,8 +783,7 @@ class EvolutionVisualizer:
             user-select: none;
             border-right: 1px solid #30363d;
             background: #0d1117;
-            position: sticky;
-            left: 0;
+            flex-shrink: 0;
         }}
 
         .file-content pre {{
@@ -775,8 +820,6 @@ class EvolutionVisualizer:
             padding: 15px;
             background: #21262d;
             border-radius: 6px;
-            max-height: 600px;
-            overflow-y: auto;
         }}
 
         .analysis-content {{
@@ -1125,6 +1168,8 @@ class EvolutionVisualizer:
 
         .tab-content {{
             display: none;
+            height: 1000px;
+            overflow-y: auto;
         }}
 
         .tab-content.active {{
@@ -1207,6 +1252,13 @@ class EvolutionVisualizer:
                 </div>
 
                 <div class="ancestry-path" id="ancestry-path"></div>
+
+                <div class="path-analysis" id="path-analysis">
+                    <div class="path-analysis-header">
+                        <span>Path Analysis</span>
+                    </div>
+                    <div id="path-chart-container"></div>
+                </div>
 
                 <div class="metrics-grid" id="detail-metrics"></div>
 
@@ -1317,6 +1369,9 @@ class EvolutionVisualizer:
 
         // Store tree root for ancestry path lookup
         let treeRoot = null;
+
+        // Store chart context for selection line
+        let chartContext = null;
 
         // Color scale for scores (will be updated based on selected metric)
         const colorScale = d3.scaleLinear()
@@ -1606,6 +1661,18 @@ class EvolutionVisualizer:
                 .attr('stroke-width', 1)
                 .attr('stroke-dasharray', '4,4');
 
+            // Selection indicator line (shown when a program is selected)
+            const selectionLine = svg.append('line')
+                .attr('class', 'selection-line')
+                .attr('y1', margin.top)
+                .attr('y2', height - margin.bottom)
+                .attr('stroke', '#f0883e')
+                .attr('stroke-width', 2)
+                .style('display', 'none');
+
+            // Store chart context for use in showProgramDetail
+            chartContext = {{ svg, x, margin, height, selectionLine, chartData }};
+
             // Transparent overlay to capture mouse events
             svg.append('rect')
                 .attr('class', 'chart-overlay')
@@ -1773,6 +1840,234 @@ class EvolutionVisualizer:
                     .style('border-top', '2px dashed ' + color);
 
                 bestBtn.append('span').text('max ' + metric.replace(/_/g, ' '));
+            }});
+        }}
+
+        // Render path analysis chart for selected program's ancestry
+        function renderPathChart(ancestors) {{
+            const container = document.getElementById('path-chart-container');
+            container.innerHTML = '';
+
+            if (!ancestors || ancestors.length < 2) {{
+                container.innerHTML = '<p class="empty-state" style="margin: 0; padding: 20px;">Path too short for analysis</p>';
+                return;
+            }}
+
+            // Extract path data from ancestors
+            const pathData = ancestors.map((n, i) => {{
+                const prog = programsData[n.data.id];
+                return {{
+                    step: i,
+                    id: n.data.id,
+                    label: n.data.order >= 0 ? `#${{n.data.order}}` : n.data.name,
+                    metrics: prog ? prog.metrics : {{}}
+                }};
+            }});
+
+            // Get metrics to display (only *_score metrics)
+            const scoreMetrics = Object.keys(pathData[0].metrics || {{}})
+                .filter(k => k.endsWith('_score') && !k.startsWith('best_'));
+
+            if (scoreMetrics.length === 0) {{
+                container.innerHTML = '<p class="empty-state" style="margin: 0; padding: 20px;">No metrics available</p>';
+                return;
+            }}
+
+            // Track visible metrics for this chart
+            const pathVisibleMetrics = new Set(scoreMetrics);
+
+            // Chart dimensions
+            const width = container.clientWidth || 400;
+            const height = 160;
+            const margin = {{top: 15, right: 15, bottom: 35, left: 45}};
+
+            const svg = d3.select('#path-chart-container')
+                .append('svg')
+                .attr('width', width)
+                .attr('height', height);
+
+            // X scale (steps along path)
+            const x = d3.scaleLinear()
+                .domain([0, pathData.length - 1])
+                .range([margin.left, width - margin.right]);
+
+            // Y scale (will be updated dynamically)
+            const y = d3.scaleLinear()
+                .range([height - margin.bottom, margin.top]);
+
+            // Compute Y domain based on visible metrics
+            function computeYDomain() {{
+                const values = pathData.flatMap(d =>
+                    Array.from(pathVisibleMetrics).map(m => d.metrics[m]).filter(v => typeof v === 'number')
+                );
+                if (values.length === 0) return [0, 1];
+                const yMin = Math.min(...values);
+                const yMax = Math.max(...values);
+                const yPadding = (yMax - yMin) * 0.1 || 0.1;
+                return [yMin - yPadding, yMax + yPadding];
+            }}
+
+            // Grid and axis groups
+            const gridGroup = svg.append('g').attr('class', 'grid');
+            const yAxisGroup = svg.append('g')
+                .attr('class', 'y-axis')
+                .attr('transform', `translate(${{margin.left}},0)`)
+                .attr('color', '#8b949e');
+            const linesGroup = svg.append('g').attr('class', 'lines');
+
+            // X axis (static)
+            svg.append('g')
+                .attr('transform', `translate(0,${{height - margin.bottom}})`)
+                .call(d3.axisBottom(x)
+                    .ticks(Math.min(pathData.length, 10))
+                    .tickFormat(i => {{
+                        const d = pathData[Math.round(i)];
+                        return d ? d.label : '';
+                    }}))
+                .attr('color', '#8b949e')
+                .selectAll('text')
+                .attr('font-size', '10px');
+
+            // Draw function (called on initial render and when toggling metrics)
+            function drawPathLines() {{
+                // Update Y domain
+                y.domain(computeYDomain());
+
+                // Update grid
+                gridGroup.selectAll('*').remove();
+                gridGroup.attr('stroke', '#30363d').attr('stroke-opacity', 0.5)
+                    .selectAll('line')
+                    .data(y.ticks(4))
+                    .join('line')
+                    .attr('x1', margin.left)
+                    .attr('x2', width - margin.right)
+                    .attr('y1', d => y(d))
+                    .attr('y2', d => y(d));
+
+                // Update Y axis
+                yAxisGroup.call(d3.axisLeft(y).ticks(4));
+
+                // Clear and redraw lines
+                linesGroup.selectAll('*').remove();
+
+                scoreMetrics.forEach((metric, idx) => {{
+                    if (!pathVisibleMetrics.has(metric)) return;
+
+                    const color = getMetricColor(metric, idx);
+                    const validData = pathData.filter(d => typeof d.metrics[metric] === 'number');
+                    if (validData.length < 2) return;
+
+                    const line = d3.line()
+                        .x(d => x(d.step))
+                        .y(d => y(d.metrics[metric]));
+
+                    // Visible line
+                    const linePath = linesGroup.append('path')
+                        .datum(validData)
+                        .attr('fill', 'none')
+                        .attr('stroke', color)
+                        .attr('stroke-width', 1.5)
+                        .attr('d', line);
+
+                    // Invisible wider line for hover
+                    linesGroup.append('path')
+                        .datum(validData)
+                        .attr('fill', 'none')
+                        .attr('stroke', 'transparent')
+                        .attr('stroke-width', 12)
+                        .attr('d', line)
+                        .style('cursor', 'pointer')
+                        .on('mouseover', function(event) {{
+                            linePath.attr('stroke-width', 3);
+                            const tooltip = document.getElementById('tooltip');
+                            tooltip.innerHTML = `<strong style="color:${{color}}">${{metric.replace(/_/g, ' ')}}</strong>`;
+                            tooltip.style.display = 'block';
+                            tooltip.style.left = (event.pageX + 10) + 'px';
+                            tooltip.style.top = (event.pageY - 10) + 'px';
+                        }})
+                        .on('mousemove', function(event) {{
+                            const tooltip = document.getElementById('tooltip');
+                            tooltip.style.left = (event.pageX + 10) + 'px';
+                            tooltip.style.top = (event.pageY - 10) + 'px';
+                        }})
+                        .on('mouseout', function() {{
+                            linePath.attr('stroke-width', 1.5);
+                            hideTooltip();
+                        }});
+
+                    // Points
+                    linesGroup.selectAll(`.path-point-${{idx}}`)
+                        .data(validData)
+                        .join('circle')
+                        .attr('class', `path-point-${{idx}}`)
+                        .attr('cx', d => x(d.step))
+                        .attr('cy', d => y(d.metrics[metric]))
+                        .attr('r', 4)
+                        .attr('fill', color)
+                        .attr('stroke', '#0d1117')
+                        .attr('stroke-width', 1)
+                        .style('cursor', 'pointer')
+                        .on('click', (event, d) => showProgramDetail(d.id))
+                        .on('mouseover', function(event, d) {{
+                            d3.select(this).attr('r', 6);
+                            const tooltip = document.getElementById('tooltip');
+                            tooltip.innerHTML = `<strong>${{d.label}}</strong><br><span style="color:${{color}}">${{metric.replace(/_/g, ' ')}}</span>: ${{d.metrics[metric].toFixed(4)}}`;
+                            tooltip.style.display = 'block';
+                            tooltip.style.left = (event.pageX + 10) + 'px';
+                            tooltip.style.top = (event.pageY - 10) + 'px';
+                        }})
+                        .on('mouseout', function() {{
+                            d3.select(this).attr('r', 4);
+                            hideTooltip();
+                        }});
+                }});
+            }}
+
+            // Initial draw
+            drawPathLines();
+
+            // Interactive legend
+            const legendContainer = d3.select('#path-chart-container')
+                .append('div')
+                .style('display', 'flex')
+                .style('flex-wrap', 'wrap')
+                .style('justify-content', 'center')
+                .style('gap', '8px')
+                .style('margin-top', '8px');
+
+            scoreMetrics.forEach((metric, idx) => {{
+                const color = getMetricColor(metric, idx);
+
+                const btn = legendContainer.append('div')
+                    .style('display', 'flex')
+                    .style('align-items', 'center')
+                    .style('gap', '5px')
+                    .style('padding', '4px 10px')
+                    .style('background', pathVisibleMetrics.has(metric) ? '#21262d' : '#0d1117')
+                    .style('border', '1px solid ' + (pathVisibleMetrics.has(metric) ? color : '#30363d'))
+                    .style('border-radius', '4px')
+                    .style('cursor', 'pointer')
+                    .style('font-size', '11px')
+                    .style('color', pathVisibleMetrics.has(metric) ? '#c9d1d9' : '#8b949e')
+                    .on('click', function() {{
+                        if (pathVisibleMetrics.has(metric)) {{
+                            pathVisibleMetrics.delete(metric);
+                        }} else {{
+                            pathVisibleMetrics.add(metric);
+                        }}
+                        d3.select(this)
+                            .style('background', pathVisibleMetrics.has(metric) ? '#21262d' : '#0d1117')
+                            .style('border-color', pathVisibleMetrics.has(metric) ? color : '#30363d')
+                            .style('color', pathVisibleMetrics.has(metric) ? '#c9d1d9' : '#8b949e');
+                        drawPathLines();
+                    }});
+
+                btn.append('div')
+                    .style('width', '12px')
+                    .style('height', '3px')
+                    .style('background', color);
+
+                btn.append('span').text(metric.replace(/_/g, ' '));
             }});
         }}
 
@@ -1955,6 +2250,15 @@ class EvolutionVisualizer:
                     selectedNodeId = programId;
                 }}
 
+                // Update selection line on score history chart
+                if (chartContext && program.order !== undefined) {{
+                    const xPos = chartContext.x(program.order);
+                    chartContext.selectionLine
+                        .attr('x1', xPos)
+                        .attr('x2', xPos)
+                        .style('display', null);
+                }}
+
                 const panel = document.getElementById('detail-panel');
                 panel.classList.add('active');
                 console.log('Panel activated');
@@ -2000,11 +2304,16 @@ class EvolutionVisualizer:
                                 }}
                             }}
                         }});
+
+                        // Render path analysis chart
+                        renderPathChart(ancestors);
                     }} else {{
                         pathContainer.innerHTML = '';
+                        document.getElementById('path-chart-container').innerHTML = '';
                     }}
                 }} else {{
                     pathContainer.innerHTML = '';
+                    document.getElementById('path-chart-container').innerHTML = '';
                 }}
 
                 // Metrics
@@ -2186,6 +2495,12 @@ class EvolutionVisualizer:
             // Clear path highlighting
             d3.selectAll('.node').classed('on-path', false);
             d3.selectAll('.link').classed('on-path', false);
+            // Hide selection line on score history chart
+            if (chartContext && chartContext.selectionLine) {{
+                chartContext.selectionLine.style('display', 'none');
+            }}
+            // Clear path analysis chart
+            document.getElementById('path-chart-container').innerHTML = '';
         }}
 
         // Tab switching
