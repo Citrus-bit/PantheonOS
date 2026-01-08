@@ -40,7 +40,8 @@
       "Bash(git diff:*)",
       "Bash(git restore:*)",
       "WebFetch(domain:pantheonos.stanford.edu)",
-      "Bash(open:*)"
+      "Bash(open:*)",
+      "Bash(timeout 60 python:*)"
     ],
     "deny": [],
     "ask": []

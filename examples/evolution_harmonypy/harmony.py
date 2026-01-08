@@ -173,8 +173,12 @@ class Harmony:
         # dist[k, i] = ||z_i - y_k||^2
         dist = self._compute_distances()
 
+        # Scale sigma based on data to avoid underflow
+        # Use median distance as reference for scaling
+        sigma_scaled = self.sigma * np.median(dist)
+
         # Soft assignments (before diversity correction)
-        R = np.exp(-dist / self.sigma)
+        R = np.exp(-dist / sigma_scaled)
 
         # Apply diversity penalty
         # Penalize clusters that are dominated by a single batch

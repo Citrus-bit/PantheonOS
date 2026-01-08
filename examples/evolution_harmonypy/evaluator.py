@@ -333,6 +333,16 @@ def evaluate(workspace_path: str) -> Dict[str, Any]:
             "error": f"Harmony execution failed: {e}",
         }
 
+    # Correctness check: verify that the algorithm actually corrected the data
+    # This prevents "metric hacking" where the algorithm does nothing but scores well
+    correction_magnitude = np.abs(X_train - X_corrected).mean()
+    if correction_magnitude < 0.01:
+        return {
+            "combined_score": 0.0,
+            "correction_magnitude": correction_magnitude,
+            "error": "No meaningful correction applied (data unchanged)",
+        }
+
     # Compute metrics on training data using real cell type labels
     try:
         # Batch mixing (higher = better, weight: 0.4)
@@ -361,6 +371,7 @@ def evaluate(workspace_path: str) -> Dict[str, Any]:
             "bio_conservation_score": bio_score,
             "speed_score": speed_score,
             "convergence_score": conv_score,
+            "correction_magnitude": correction_magnitude,
             "execution_time": execution_time,
             "iterations": len(objectives),
             "n_cells": n_cells,
