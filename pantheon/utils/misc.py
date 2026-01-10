@@ -183,7 +183,17 @@ def desc_to_openai_dict(
         if "items" in oai_pdict:
             pdict["items"] = oai_pdict["items"]
         if "anyOf" in oai_pdict:
-            pdict["anyOf"] = oai_pdict["anyOf"]
+            # Gemini compatibility: Flatten "anyOf": [{"type": "array"}, {"type": "null"}]
+            # to just "type": "array". OpenAI handles optional arrays fine without explicit null union.
+            array_option = next(
+                (item for item in oai_pdict["anyOf"] if item.get("type") == "array"),
+                None,
+            )
+            if array_option:
+                pdict["type"] = "array"
+                pdict["items"] = array_option.get("items", {})
+            else:
+                pdict["anyOf"] = oai_pdict["anyOf"]
 
         parameters[arg.name] = pdict
 

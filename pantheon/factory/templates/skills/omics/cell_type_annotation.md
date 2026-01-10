@@ -107,8 +107,6 @@ markers_dict = (
 
 ### Step 3: Visualize Markers
 
-> **IMPORTANT**: Dotplot axis semantics: **y-axis = clusters, x-axis = genes**. Do NOT use `swap_axes=True`.
-
 > [!TIP]
 > **Diagonal Pattern**: Sort genes by their peak expression cluster, aligned with dendrogram order.
 
