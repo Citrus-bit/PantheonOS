@@ -61,8 +61,9 @@ jobs:
           # List all tests for debugging
           uv run pytest -v tests/ --collect-only -q 2>&1 | tail -20
 
-          # Run all tests in a single pytest invocation with junit-xml report
+          # Run all tests with timeout (60s per test) to prevent hanging
           uv run pytest -v tests/ \
+            --timeout=60 \
             --tb=short \
             --junit-xml=test-results.xml
 
