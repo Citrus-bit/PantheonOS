@@ -62,10 +62,10 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           # List all tests for debugging
-          pytest -v tests/ --collect-only -q 2>&1 | tail -20
+          uv run pytest -v tests/ --collect-only -q 2>&1 | tail -20
 
           # Run all tests in a single pytest invocation with junit-xml report
-          pytest -v tests/ \
+          uv run pytest -v tests/ \
             --tb=short \
             --junit-xml=test-results.xml
 
