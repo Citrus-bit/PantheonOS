@@ -79,6 +79,7 @@ markers = [
 dev = [
     "pytest>=8.3.4",
     "pytest-asyncio>=0.25.0",
+    "pytest-timeout>=2.3.1",
 ]
 slack = [
     "slack-sdk",
