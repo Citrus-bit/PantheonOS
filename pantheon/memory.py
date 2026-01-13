@@ -219,6 +219,37 @@ class Memory:
 
         return final_messages
 
+    def get_user_turns(self) -> list[tuple[int, dict]]:
+        """
+        Get all user turns from the memory.
+
+        Returns:
+            A list of tuples containing the index and the message.
+        """
+        return [
+            (i, msg)
+            for i, msg in enumerate(self._messages)
+            if msg.get("role") == "user"
+        ]
+
+    def revert_to_message(self, index: int):
+        """
+        Revert the memory to a specific message index.
+        The message at the given index will be REMOVED, along with all subsequent messages.
+        Effectively rollback to the state BEFORE that message.
+
+        Args:
+            index: The index of the message to revert to (inclusive).
+        """
+        if 0 <= index < len(self._messages):
+            self._messages = self._messages[:index]
+            self._dirty = True
+            # Force immediate save for revert to prevent race conditions or confusion
+            if self._file_path:
+                self.save(self._file_path)
+        else:
+            raise ValueError(f"Invalid message index: {index}")
+
     def cleanup(self):
         """Cleanup the memory after the agent is interrupted."""
         while True:

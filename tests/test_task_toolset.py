@@ -367,11 +367,11 @@ class TestTaskToolSet:
         
         ts = TaskToolSet()
         result = await ts.task_boundary(
-            TaskName="Test",
-            Mode="PLANNING",
-            TaskSummary="Testing",
-            TaskStatus="Running test",
-            PredictedTaskSize=5
+            task_name="Test",
+            mode="PLANNING",
+            task_summary="Testing",
+            task_status="Running test",
+            predicted_task_size=5
         )
         
         assert result["success"] is True
@@ -385,11 +385,11 @@ class TestTaskToolSet:
         
         ts = TaskToolSet()
         result = await ts.task_boundary(
-            TaskName="Research Task",
-            Mode="RESEARCH",
-            TaskSummary="Researching",
-            TaskStatus="Gathering info",
-            PredictedTaskSize=10
+            task_name="Research Task",
+            mode="RESEARCH",
+            task_summary="Researching",
+            task_status="Gathering info",
+            predicted_task_size=10
         )
         
         assert result["success"] is True
@@ -403,11 +403,11 @@ class TestTaskToolSet:
         
         ts = TaskToolSet()
         result = await ts.task_boundary(
-            TaskName="Analysis Task",
-            Mode="ANALYSIS",
-            TaskSummary="Analyzing",
-            TaskStatus="Processing data",
-            PredictedTaskSize=15
+            task_name="Analysis Task",
+            mode="ANALYSIS",
+            task_summary="Analyzing",
+            task_status="Processing data",
+            predicted_task_size=15
         )
         
         assert result["success"] is True
@@ -421,11 +421,11 @@ class TestTaskToolSet:
         
         ts = TaskToolSet()
         result = await ts.task_boundary(
-            TaskName="Interpretation Task",
-            Mode="INTERPRETATION",
-            TaskSummary="Interpreting",
-            TaskStatus="Drawing conclusions",
-            PredictedTaskSize=5
+            task_name="Interpretation Task",
+            mode="INTERPRETATION",
+            task_summary="Interpreting",
+            task_status="Drawing conclusions",
+            predicted_task_size=5
         )
         
         assert result["success"] is True
@@ -439,11 +439,11 @@ class TestTaskToolSet:
         
         ts = TaskToolSet()
         result = await ts.task_boundary(
-            TaskName="Test",
-            Mode="",
-            TaskSummary="Testing",
-            TaskStatus="Running",
-            PredictedTaskSize=5
+            task_name="Test",
+            mode="",
+            task_summary="Testing",
+            task_status="Running",
+            predicted_task_size=5
         )
         
         assert result["success"] is False
@@ -456,11 +456,11 @@ class TestTaskToolSet:
         
         ts = TaskToolSet()
         result = await ts.task_boundary(
-            TaskName="Test",
-            Mode="CUSTOM_MODE",
-            TaskSummary="Testing",
-            TaskStatus="Running",
-            PredictedTaskSize=5
+            task_name="Test",
+            mode="CUSTOM_MODE",
+            task_summary="Testing",
+            task_status="Running",
+            predicted_task_size=5
         )
         
         # Should succeed but log warning
@@ -474,11 +474,11 @@ class TestTaskToolSet:
         
         ts = TaskToolSet()
         result = await ts.task_boundary(
-            TaskName="Test",
-            Mode="research",  # lowercase
-            TaskSummary="Testing",
-            TaskStatus="Running",
-            PredictedTaskSize=5
+            task_name="Test",
+            mode="research",  # lowercase
+            task_summary="Testing",
+            task_status="Running",
+            predicted_task_size=5
         )
         
         assert result["success"] is True
@@ -502,11 +502,11 @@ class TestTaskToolSet:
         
         ts = TaskToolSet()
         result = await ts.notify_user(
-            PathsToReview=["/path/to/plan.md"],
-            BlockedOnUser=True,
-            Message="Please review",
-            ConfidenceJustification="All No",
-            ConfidenceScore=0.9
+            paths_to_review=["/path/to/plan.md"],
+            blocked_on_user=True,
+            message="Please review",
+            confidence_justification="All No",
+            confidence_score=0.9
         )
         
         assert result["success"] is True

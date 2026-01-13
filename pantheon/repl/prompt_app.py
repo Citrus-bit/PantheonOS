@@ -177,6 +177,7 @@ class ReplCompleter(Completer):
         ("/history", "Command history"),
         ("/tokens", "Token usage analysis"),
         ("/save", "Save conversation"),
+        ("/revert", "Revert memory to previous state"),
         ("/clear", "Clear/new chat"),
         ("/exit", "Exit REPL"),
         # Chat management
@@ -731,11 +732,7 @@ class PantheonInputApp:
                 ConditionalContainer(
                     Window(
                         content=self.task_panel_control,
-                        height=Dimension(
-                            min=6,
-                            max=20,  # Increased max height
-                            preferred=15,  # Prefer max height if content available
-                        ),
+                        height=self._get_task_panel_height,  # Use dynamic height callable
                         style="class:task-panel",
                     ),
                     filter=Condition(lambda: self._task_panel_visible),
@@ -790,7 +787,33 @@ class PantheonInputApp:
             refresh_interval=0.125,  # 8 fps for smooth animation
         )
 
-
+    def _get_task_panel_height(self) -> Dimension:
+        """Calculate dynamic task panel height based on terminal size.
+        
+        Returns:
+            Dimension with dynamic max height
+        """
+        # Get terminal height
+        term_height = shutil.get_terminal_size().lines
+        
+        # Calculate max available height
+        # Reserve space for:
+        # - Input area (min 1 line + borders) ~ 3 lines
+        # - Status bar ~ 1 line
+        # - Processing bar ~ 1 line
+        # - Extra buffer ~ 5-7 lines
+        min_buffer = 12
+        available_height = max(10, term_height - min_buffer)
+        
+        # Use up to 60% of terminal height, but respect minimums
+        max_height = max(20, int(term_height * 0.6))
+        
+        # Ensure we don't exceed available space
+        max_height = min(max_height, available_height)
+        
+        # Return Dimension
+        # min=6 ensures enough space for title + summary + status
+        return Dimension(min=6, max=max_height, preferred=max_height)
 
     def _get_term_title(self) -> str:
         """Get the terminal window title.
@@ -1144,4 +1167,11 @@ class PantheonInputApp:
         """Hide task panel (no active task)."""
         self._task_panel_visible = False
         self._task_panel_content = ""
+        self.app.invalidate()
+
+    def set_input_text(self, text: str):
+        """Set the content of the input buffer."""
+        self.text_area.text = text
+        # Move cursor to end
+        self.text_area.buffer.cursor_position = len(text)
         self.app.invalidate()

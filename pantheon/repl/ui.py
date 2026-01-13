@@ -497,6 +497,9 @@ class ReplUI:
             "[dim][bold purple]/save    [/bold purple][/dim] - Save conversation to (json) file"
         )
         self.console.print(
+            "[dim][bold purple]/revert  [/bold purple][/dim] - Revert conversation for rollback (undo)"
+        )
+        self.console.print(
             "[dim][bold purple]/clear   [/bold purple][/dim] - Clear screen"
         )
         self.console.print(

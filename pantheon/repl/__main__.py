@@ -57,7 +57,7 @@ def start(
         memory_dir: Directory for chat persistence. (default from settings: .pantheon)
         workspace: Workspace directory for Endpoint.
         chat_id: Resume specific chat by ID.
-        log_level: Log level (DEBUG, INFO, WARNING, ERROR). Default: ERROR.
+        log_level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL). Default: CRITICAL.
         quiet: Disable all logging. Use --quiet to enable. (default: False)
         resync: Force resync templates by deleting skills/agents/teams directories. (default: False)
     """
@@ -86,7 +86,7 @@ def start(
         "chatroom.memory_dir", str(settings.memory_dir)
     )
     quiet = quiet if quiet is not None else settings.get("repl.quiet", False)
-    log_level = log_level or settings.get("repl.log_level", "ERROR")
+    log_level = log_level or settings.get("repl.log_level", "CRITICAL")
 
     asyncio.run(
         _start_async(
@@ -131,7 +131,7 @@ async def _start_async(
     memory_dir: str = None,
     workspace: str = None,
     chat_id: str = None,
-    log_level: str = "ERROR",
+    log_level: str = "CRITICAL",
     quiet: bool = False,
 ):
     """Async implementation of start."""
@@ -163,12 +163,18 @@ async def _start_async(
     if log_level != "DEBUG":
         # FastMCP uses its own global settings for logging
         # Set via environment variable to avoid importing fastmcp here
-        os.environ.setdefault("FASTMCP_LOG_LEVEL", "WARNING")
+        # For external libs, we default to WARNING to avoid INFO noise,
+        # but respect user's choice if they want to be stricter (ERROR, CRITICAL)
+        ext_level = "WARNING"
+        if log_level in ("ERROR", "CRITICAL"):
+            ext_level = log_level
+
+        os.environ.setdefault("FASTMCP_LOG_LEVEL", ext_level)
 
         # Also set Python logging for uvicorn
-        logging.getLogger("FastMCP").setLevel(logging.WARNING)
-        logging.getLogger("uvicorn").setLevel(logging.WARNING)
-        logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+        logging.getLogger("FastMCP").setLevel(ext_level)
+        logging.getLogger("uvicorn").setLevel(ext_level)
+        logging.getLogger("uvicorn.access").setLevel(ext_level)
 
     # Use original CWD as workspace if not specified
     # This ensures file operations work relative to user's launch directory
@@ -261,7 +267,7 @@ async def _start_async(
     # Start background task to update litellm cost map (non-blocking)
     asyncio.create_task(_update_litellm_cost_map())
 
-    await repl.run(disable_logging=disable_logging)
+    await repl.run(disable_logging=disable_logging, log_level=log_level)
 
 
 if __name__ == "__main__":

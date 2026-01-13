@@ -97,19 +97,19 @@ class TestTaskUIRenderer:
     
     def test_has_active_task_true(self, renderer):
         renderer.update_task_boundary({
-            "TaskName": "Test",
-            "Mode": "PLANNING",
-            "TaskStatus": "Status",
-            "TaskSummary": "Summary"
+            "task_name": "Test",
+            "mode": "PLANNING",
+            "task_status": "Status",
+            "task_summary": "Summary"
         })
         assert renderer.has_active_task() is True
     
     def test_update_task_boundary_basic(self, renderer):
         renderer.update_task_boundary({
-            "TaskName": "Test Task",
-            "Mode": "EXECUTION",
-            "TaskStatus": "Running test",
-            "TaskSummary": "Testing"
+            "task_name": "Test Task",
+            "mode": "EXECUTION",
+            "task_status": "Running test",
+            "task_summary": "Testing"
         })
         
         assert renderer.state.task_name == "Test Task"
@@ -120,18 +120,18 @@ class TestTaskUIRenderer:
     def test_update_task_boundary_same_substitution(self, renderer):
         # First task
         renderer.update_task_boundary({
-            "TaskName": "Initial Task",
-            "Mode": "PLANNING",
-            "TaskStatus": "Planning",
-            "TaskSummary": "Starting"
+            "task_name": "Initial Task",
+            "mode": "PLANNING",
+            "task_status": "Planning",
+            "task_summary": "Starting"
         })
         
         # Update with %SAME%
         renderer.update_task_boundary({
-            "TaskName": "%SAME%",
-            "Mode": "%SAME%",
-            "TaskStatus": "New status",
-            "TaskSummary": "%SAME%"
+            "task_name": "%SAME%",
+            "mode": "%SAME%",
+            "task_status": "New status",
+            "task_summary": "%SAME%"
         })
         
         assert renderer.state.task_name == "Initial Task"
@@ -141,17 +141,17 @@ class TestTaskUIRenderer:
     
     def test_status_history_accumulation(self, renderer):
         renderer.update_task_boundary({
-            "TaskName": "Test",
-            "Mode": "PLANNING",
-            "TaskStatus": "Status 1",
-            "TaskSummary": "Summary"
+            "task_name": "Test",
+            "mode": "PLANNING",
+            "task_status": "Status 1",
+            "task_summary": "Summary"
         })
         
         renderer.update_task_boundary({
-            "TaskName": "%SAME%",
-            "Mode": "%SAME%",
-            "TaskStatus": "Status 2",
-            "TaskSummary": "%SAME%"
+            "task_name": "%SAME%",
+            "mode": "%SAME%",
+            "task_status": "Status 2",
+            "task_summary": "%SAME%"
         })
         
         assert len(renderer.state.status_history) == 1
@@ -215,10 +215,10 @@ class TestTaskUIRenderer:
     
     def test_render_dynamic_panel_with_task(self, renderer):
         renderer.update_task_boundary({
-            "TaskName": "Test Task",
-            "Mode": "EXECUTION",
-            "TaskStatus": "Running",
-            "TaskSummary": "Summary"
+            "task_name": "Test Task",
+            "mode": "EXECUTION",
+            "task_status": "Running",
+            "task_summary": "Summary"
         })
         
         panel = renderer.render_dynamic_task_panel()
@@ -227,10 +227,10 @@ class TestTaskUIRenderer:
     
     def test_on_notify_user_clears_state(self, renderer):
         renderer.update_task_boundary({
-            "TaskName": "Test",
-            "Mode": "PLANNING",
-            "TaskStatus": "Status",
-            "TaskSummary": "Summary"
+            "task_name": "Test",
+            "mode": "PLANNING",
+            "task_status": "Status",
+            "task_summary": "Summary"
         })
         
         renderer.on_notify_user()
@@ -245,10 +245,10 @@ class TestTaskUIRenderer:
         
         # Set initial task boundary
         renderer.update_task_boundary({
-            "TaskName": "Test",
-            "Mode": "PLANNING",
-            "TaskStatus": "Status 1",
-            "TaskSummary": "Summary"
+            "task_name": "Test",
+            "mode": "PLANNING",
+            "task_status": "Status 1",
+            "task_summary": "Summary"
         })
         
         # Add another tool
@@ -256,14 +256,15 @@ class TestTaskUIRenderer:
         
         # Change status - should finalize current step
         renderer.update_task_boundary({
-            "TaskName": "%SAME%",
-            "Mode": "%SAME%",
-            "TaskStatus": "Status 2",
-            "TaskSummary": "%SAME%"
+            "task_name": "%SAME%",
+            "mode": "%SAME%",
+            "task_status": "Status 2",
+            "task_summary": "%SAME%"
         })
         
-        # Previous step should be finalized to recent_steps
-        assert len(renderer.state.recent_steps) >= 1
+        # Previous step should be finalized but then CLEARED to prevent leakage
+        # assert len(renderer.state.recent_steps) >= 1  <-- Old behavior
+        assert len(renderer.state.recent_steps) == 0  # New behavior (Leakage Fix)
     
     def test_flatten_step(self, renderer):
         step = AssistantStep(items=[
@@ -272,6 +273,40 @@ class TestTaskUIRenderer:
         ])
         items = renderer._flatten_step(step, is_current=False)
         assert len(items) == 2  # message + tool
+
+
+    def test_reset_clears_prompt_app_panel(self, renderer):
+        """Test that reset() clears state and hides dynamic panel."""
+        # Setup initial state
+        renderer.update_task_boundary({
+            "task_name": "Task 1",
+            "mode": "PLANNING",
+            "task_status": "Status",
+            "task_summary": "Summary"
+        })
+        
+        # Mock prompt_app
+        class MockApp:
+            def __init__(self):
+                self.visible = False
+            def hide_task_panel(self):
+                self.visible = False
+            def show_task_panel(self):
+                self.visible = True
+        
+        mock_app = MockApp()
+        mock_app.visible = True  # Simulate active
+        renderer.set_prompt_app(mock_app)
+        
+        # RESET
+        renderer.reset()
+        
+        # Verify
+        assert renderer.has_active_task() is False
+        assert renderer.state.task_name == ""
+        assert mock_app.visible is False 
+        # Verify NO history (clean wipe)
+        assert len(renderer._previous_states) == 0
 
 
 class TestNotifyUIRenderer:

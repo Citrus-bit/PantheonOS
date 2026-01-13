@@ -18,6 +18,7 @@ LEVEL_MAP = {
     "INFO": 20,
     "WARNING": 30,
     "ERROR": 40,
+    "CRITICAL": 50,
 }
 
 # Track file handler ID for management

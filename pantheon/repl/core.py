@@ -153,11 +153,13 @@ class Repl(ReplUI):
         from .handlers.builtin.view import ViewCommandHandler
         from .handlers.builtin.mcp import MCPCommandHandler
         from .handlers.builtin.edit import EditHandler
+        from .handlers.builtin.revert import RevertCommandHandler
         self.handlers: list[CommandHandler] = [
             BashCommandHandler(self.console, self),
             ViewCommandHandler(self.console, self),
             MCPCommandHandler(self.console, self),
             EditHandler(self.console, self),
+            RevertCommandHandler(self.console, self),
         ]
 
         # prompt_toolkit application for enhanced input
@@ -573,7 +575,7 @@ class Repl(ReplUI):
         # This runs after UI is shown, so user sees REPL immediately
         asyncio.create_task(self._chatroom.run_setup())
 
-    async def run(self, message: str | dict | None = None, disable_logging: bool = True, log_to_file: bool = True):
+    async def run(self, message: str | dict | None = None, disable_logging: bool = True, log_to_file: bool = True, log_level: str = "CRITICAL"):
         """Main REPL loop.
         
         Args:
@@ -659,7 +661,7 @@ class Repl(ReplUI):
                      # This ensures log output doesn't break the REPL rendering
                      # Use set_level instead of remove() to preserve file logging
                      from pantheon.utils.log import set_level
-                     set_level("WARNING")
+                     set_level(log_level)
 
                      # Create background processing task
                      processing_task = asyncio.create_task(self._processing_loop())
@@ -1072,9 +1074,9 @@ class Repl(ReplUI):
                                     # Render notification immediately using arguments
                                     # specific mapping for notify_user args -> renderer format
                                     notification_data = {
-                                        "message": args.get("Message", ""),
-                                        "paths": args.get("PathsToReview", []),
-                                        "interrupt": args.get("BlockedOnUser", False)
+                                        "message": args.get("message") or args.get("Message", ""),
+                                        "paths": args.get("paths_to_review") or args.get("PathsToReview", []),
+                                        "interrupt": args.get("blocked_on_user") or args.get("BlockedOnUser", False)
                                     }
                                     self.notify_ui_renderer.render_notification(notification_data)
                                     
@@ -1311,6 +1313,7 @@ class Repl(ReplUI):
 
     async def _handle_new_chat(self):
         """Create a new chat session."""
+        self.task_ui_renderer.reset()
         result = await self._chatroom.create_chat()
         self._chat_id = result["chat_id"]
         self.console.print(
@@ -1401,6 +1404,7 @@ class Repl(ReplUI):
                 return
 
         # Switch to the found chat
+        self.task_ui_renderer.reset()
         self._chat_id = found["id"]
         self.console.print(
             f"[green]✅ Resumed:[/green] {found.get('name', self._chat_id)}"
@@ -1596,6 +1600,7 @@ class Repl(ReplUI):
                 return
 
             # Apply
+            self.task_ui_renderer.reset()
             setup = await self._chatroom.setup_team_for_chat(self._chat_id, template)
             if not setup.get("success"):
                 self.console.print(f"[red]Failed to apply team: {setup.get('message', 'Unknown error')}[/red]")
@@ -1677,6 +1682,10 @@ class Repl(ReplUI):
         result = await self._chatroom.set_active_agent(self._chat_id, target_agent_name)
         if result.get("success"):
             self._current_agent_name = target_agent_name
+            
+            # Reset task UI when switching agents
+            self.task_ui_renderer.reset()
+            
             # Update status bar agent display
             if self.prompt_app:
                 self.prompt_app.update_agent(target_agent_name)
@@ -1811,6 +1820,7 @@ class Repl(ReplUI):
     async def _handle_clear(self):
         """Clear current chat and create new one."""
         self.console.clear()
+        self.task_ui_renderer.reset()
         # Delete old chat and create new
         if self._chat_id:
             await self._chatroom.delete_chat(self._chat_id)

@@ -58,36 +58,34 @@ class TaskToolSet(ToolSet):
     @tool
     async def task_boundary(
         self,
-        TaskName: str,
-        Mode: str,
-        TaskSummary: str,
-        TaskStatus: str,
-        PredictedTaskSize: int,
-        waitForPreviousTools: bool = False,
+        task_name: str,
+        mode: str,
+        task_summary: str,
+        task_status: str,
+        predicted_task_size: int,
     ) -> dict:
         """
         CRITICAL: You must ALWAYS call this tool as the VERY FIRST tool in your list of tool calls, before any other tools.
         Indicate the start of a task or make an update to the current task. This should roughly correspond to the top-level items in your task.md.
 
-        The tool should also be used to update the status and summary periodically throughout the task. When updating the status or summary of the current task, you must use the exact same TaskName as before.
+        The tool should also be used to update the status and summary periodically throughout the task. When updating the status or summary of the current task, you must use the exact same task_name as before.
 
-        To avoid repeating the same values, use the special string "%SAME%" for Mode, TaskName, TaskStatus, or TaskSummary to reuse the previous value.
+        To avoid repeating the same values, use the special string "%SAME%" for mode, task_name, task_status, or task_summary to reuse the previous value.
 
         Args:
-            TaskName: Name of the task boundary. This is the identifier that groups steps together, should be human readable like 'Researching Existing Server Implementation'. This should correspond to a top-level item in task.md.
-            Mode: The agent focus to switch to. Common modes: PLANNING/EXECUTION/VERIFICATION (coding) or RESEARCH/ANALYSIS/INTERPRETATION (research).
-            TaskSummary: Concise summary of what has been accomplished throughout the entire task so far. Should be at most 1-2 lines, past tense. Cite important files between backticks.
-            TaskStatus: Active status of the current action, e.g 'Looking for files'. Should describe what you are GOING TO DO NEXT, not what you have done.
-            PredictedTaskSize: Your best estimation on how many tool calls are needed to fulfill this task.
-            waitForPreviousTools: If true, wait for all previous tool calls to complete before executing.
+            task_name: Name of the task boundary. This is the identifier that groups steps together, should be human readable like 'Researching Existing Server Implementation'. This should correspond to a top-level item in task.md.
+            mode: The agent focus to switch to. Common modes: PLANNING/EXECUTION/VERIFICATION (coding) or RESEARCH/ANALYSIS/INTERPRETATION (research).
+            task_summary: Concise summary of what has been accomplished throughout the entire task so far. Should be at most 1-2 lines, past tense. Cite important files between backticks.
+            task_status: Active status of the current action, e.g 'Looking for files'. Should describe what you are GOING TO DO NEXT, not what you have done.
+            predicted_task_size: Your best estimation on how many tool calls are needed to fulfill this task.
         """
         # Handle %SAME% substitution
-        task_name = self._last.get("task_name") if TaskName == "%SAME%" else TaskName
-        mode = self._last.get("mode") if Mode == "%SAME%" else Mode
+        task_name = self._last.get("task_name") if "%SAME%" in task_name else task_name
+        mode = self._last.get("mode") if "%SAME%" in mode else mode
         task_summary = (
-            self._last.get("summary") if TaskSummary == "%SAME%" else TaskSummary
+            self._last.get("summary") if "%SAME%" in task_summary else task_summary
         )
-        task_status = self._last.get("status") if TaskStatus == "%SAME%" else TaskStatus
+        task_status = self._last.get("status") if "%SAME%" in task_status else task_status
 
         # Validate mode: accept known modes, warn for unknown but allow
         if not mode or not mode.strip():
@@ -120,12 +118,11 @@ class TaskToolSet(ToolSet):
     @tool
     async def notify_user(
         self,
-        PathsToReview: list[str],
-        BlockedOnUser: bool,
-        Message: str,
-        ConfidenceJustification: str,
-        ConfidenceScore: float,
-        waitForPreviousTools: bool = True,
+        paths_to_review: list[str],
+        blocked_on_user: bool,
+        message: str,
+        confidence_justification: str,
+        confidence_score: float,
     ) -> dict:
         """
         This tool is used to communicate with the user.
@@ -135,7 +132,7 @@ class TaskToolSet(ToolSet):
         When sending messages, be very careful to make this as concise as possible. If requesting review, do not be redundant with the file you are asking to be reviewed.
         IMPORTANT: Format your message in github-style markdown to make your message easier for the USER to parse.
 
-        CONFIDENCE GRADING: Before setting ConfidenceScore, answer these 6 questions (Yes/No):
+        CONFIDENCE GRADING: Before setting confidence_score, answer these 6 questions (Yes/No):
         (1) Gaps - any missing parts? (2) Assumptions - any unverified assumptions? (3) Complexity - complex logic with unknowns?
         (4) Risk - non-trivial interactions with bug risk? (5) Ambiguity - unclear requirements forcing design choices? (6) Irreversible - difficult to revert?
         SCORING: 0.8-1.0 = No to ALL questions; 0.5-0.7 = Yes to 1-2 questions; 0.0-0.4 = Yes to 3+ questions.
@@ -143,14 +140,13 @@ class TaskToolSet(ToolSet):
         IMPORTANT: This tool should NEVER be called in parallel with other tools. Execution control will be returned to the user once this tool is called.
 
         Args:
-            PathsToReview: List of ABSOLUTE paths to files that the user should be notified about. MUST populate this if requesting review.
-            BlockedOnUser: Set to true if you are blocked on user approval to proceed. Set false if just notifying about completion.
-            Message: Required message to notify the user with, e.g to provide context or ask questions. Use GitHub Flavored Markdown (GFM) format.
-            ConfidenceJustification: Justification for the confidence score. MUST answer the 6 assessment questions with Yes/No.
-            ConfidenceScore: Agent's confidence from 0.0-1.0. MUST follow scoring rules above.
-            waitForPreviousTools: Should always be True for notify_user to ensure sequential execution.
+            paths_to_review: List of ABSOLUTE paths to files that the user should be notified about. MUST populate this if requesting review.
+            blocked_on_user: Set to true if you are blocked on user approval to proceed. Set false if just notifying about completion.
+            message: Required message to notify the user with, e.g to provide context or ask questions. Use GitHub Flavored Markdown (GFM) format.
+            confidence_justification: Justification for the confidence score. MUST answer the 6 assessment questions with Yes/No.
+            confidence_score: Agent's confidence from 0.0-1.0. MUST follow scoring rules above.
         """
-        self.state.on_notify_user(PathsToReview)
+        self.state.on_notify_user(paths_to_review)
 
         # Persist state using context from toolset
         context = self.get_context()
@@ -160,9 +156,9 @@ class TaskToolSet(ToolSet):
 
         return {
             "success": True,
-            "interrupt": BlockedOnUser,
-            "message": Message,
-            "paths": PathsToReview,
+            "interrupt": blocked_on_user,
+            "message": message,
+            "paths": paths_to_review,
         }
 
     def get_ephemeral_prompt(self, context_variables: dict) -> dict:

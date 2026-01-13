@@ -8,9 +8,12 @@ from dataclasses import dataclass, field
 from collections import deque
 from io import StringIO
 import shutil
+from datetime import datetime
+from collections import deque
+import shutil
 from typing import TYPE_CHECKING, Optional
-
-from rich.console import Console
+from rich.console import Console, Group
+from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
 
@@ -142,6 +145,17 @@ class TaskUIRenderer:
         self._previous_states: list[TaskUIState] = []
         self._spinner_idx = 0  # Current spinner frame index
     
+    def reset(self):
+        """Reset state cleanly (e.g., for /clear or new session).
+        
+        Differs from on_notify_user in that it does NOT print the static
+        task panel to scrollback. It simply wipes the state and hides the UI.
+        """
+        self.state = TaskUIState()
+        self._previous_states = []
+        if self.prompt_app:
+            self.prompt_app.hide_task_panel()
+    
     def set_prompt_app(self, prompt_app: "PantheonInputApp"):
         """Set the prompt app reference (for late binding)."""
         self.prompt_app = prompt_app
@@ -159,12 +173,12 @@ class TaskUIRenderer:
         """Handle task_boundary tool call.
         
         Args:
-            args: Tool call arguments containing TaskName, Mode, TaskStatus, TaskSummary
+            args: Tool call arguments containing task_name, mode, task_status, task_summary
         """
-        new_name = args.get("TaskName", "")
+        new_name = args.get("task_name") or args.get("TaskName", "")
         
         # Handle %SAME% substitution
-        if new_name == "%SAME%":
+        if "%SAME%" in new_name:
             new_name = self.state.task_name
         
         # New task?
@@ -182,25 +196,29 @@ class TaskUIRenderer:
         self.state.task_name = new_name
         
         # Handle mode
-        new_mode = args.get("Mode", "")
-        if new_mode == "%SAME%":
+        new_mode = args.get("mode") or args.get("Mode", "")
+        if "%SAME%" in new_mode:
             new_mode = self.state.mode or (self._previous_states[-1].mode if self._previous_states else "")
         self.state.mode = new_mode.upper() if new_mode else self.state.mode
         
         # Finalize current step when status changes (new phase)
-        new_status = args.get("TaskStatus", "")
-        if new_status != "%SAME%" and new_status and new_status != self.state.current_status:
+        new_status = args.get("task_status") or args.get("TaskStatus", "")
+        if "%SAME%" not in new_status and new_status and new_status != self.state.current_status:
             self._finalize_current_step()
             if self.state.current_status:
                 self.state.status_history.append(self.state.current_status)
                 # Keep only recent history
                 if len(self.state.status_history) > self.MAX_STATUS_HISTORY:
                     self.state.status_history = self.state.status_history[-self.MAX_STATUS_HISTORY:]
+            
+            # Clear recent steps to prevent leakage into new status context
+            self.state.recent_steps.clear()
+            
             self.state.current_status = new_status
         
         # Handle summary
-        new_summary = args.get("TaskSummary", "")
-        if new_summary != "%SAME%" and new_summary:
+        new_summary = args.get("task_summary") or args.get("TaskSummary", "")
+        if "%SAME%" not in new_summary and new_summary:
             self.state.summary = new_summary
         
         # Update dynamic panel
@@ -317,62 +335,118 @@ class TaskUIRenderer:
         )
         self.console.print(panel)
     
-    def render_dynamic_task_panel(self) -> Optional[Panel]:
+    def render_dynamic_task_panel(self, max_height: Optional[int] = None) -> Optional[Panel]:
         """Render dynamic task panel (real-time updates at fixed position).
         
-        Layout:
-        - Task name (title)
-        - Summary
-        - Status history (collapsed, with checkmarks)
-        - Active status (with spinner)
-        - Flattened recent steps: message, tool1, tool2, message2, tool3, ...
+        Args:
+            max_height: Optional maximum height for the panel (to enforce borders)
         
         Returns:
             Rich Panel object, or None if no active task
         """
         if not self.state.task_name:
             return None
-        
-        # Build panel content
-        lines = []
-        
-        # Summary
+            
+        # 1. Gather all potential content blocks
+        # -------------------------------------
+        summary_line = None
         if self.state.summary:
-            lines.append(f"[dim]Summary:[/dim] {self.state.summary}")
-            lines.append("")
-        
-        # Status history (collapsed - just show checkmarks, no actions)
-        for status in self.state.status_history[-5:]:  # Last 5 completed statuses
-            lines.append(f"[green]✓[/green] [dim]{status}[/dim]")
-        
-        # Active status with animated spinner
+            summary_line = f"[dim]Summary:[/dim] {self.state.summary}"
+            
+        history_lines = []
+        for status in self.state.status_history[-5:]:
+            history_lines.append(f"[green]✓[/green] [dim]{status}[/dim]")
+            
+        current_status_line = None
         if self.state.current_status:
             spinner = self.SPINNER_FRAMES[self._spinner_idx]
-            lines.append(f"[cyan]{spinner}[/cyan] [bold]{self.state.current_status}[/bold]")
-        
-        # Flattened recent steps (message + tool_calls as separate lines)
-        all_items = []
-        
-        # Add all completed steps from deque
+            current_status_line = f"[cyan]{spinner}[/cyan] [bold]{self.state.current_status}[/bold]"
+            
+        # Collect all items (flattened)
+        item_lines = []
         for step in self.state.recent_steps:
-            all_items.extend(self._flatten_step(step, is_current=False))
-        
-        # Add current step (in progress)
+            item_lines.extend(self._flatten_step(step, is_current=False))
         if self.state._current_step:
-            all_items.extend(self._flatten_step(self.state._current_step, is_current=True))
+            item_lines.extend(self._flatten_step(self.state._current_step, is_current=True))
+        item_lines = [f"    {item}" for item in item_lines]
+
+
+        # 2. Simplified Block-Based Truncation (User Requested)
+        # -----------------------------------------------------
+        # Strategy: 
+        # - Bottom Block (Priority 1): Current Status + Last 7 Items
+        # - Top Block (Priority 2): Summary + Last 5 History
+        # - Combine and truncate Top Block first if needed.
         
-        # Show only last N items (MAX_RECENT_ITEMS)
-        for item in all_items[-self.MAX_RECENT_ITEMS:]:
-            lines.append(f"    {item}")
+        # Define limits
+        LIMIT_ITEMS = 7
+        LIMIT_HISTORY = 5
         
+        # Construct Bottom Block
+        bottom_block = []
+        if current_status_line:
+            bottom_block.append(current_status_line)
+        # Add items (up to limit)
+        recent_items = item_lines[-LIMIT_ITEMS:]
+        bottom_block.extend(recent_items)
+        
+        # Construct Top Block
+        top_block = []
+        if summary_line:
+            top_block.append(summary_line)
+            top_block.append("") # Spacer
+            
+        # Add history (up to limit)
+        recent_history = []
+        for status in self.state.status_history[-LIMIT_HISTORY:]:
+             recent_history.append(f"[green]✓[/green] [dim]{status}[/dim]")
+        top_block.extend(recent_history)
+        
+        
+        # Determine final content based on budget
+        final_lines = []
+        
+        if not max_height:
+             # Show everything (limited by block limits defined above for consistency)
+             final_lines = top_block + bottom_block
+        else:
+            budget = max_height - 2
+            if budget < 1: budget = 1
+            
+            # Try full content
+            full_content = top_block + bottom_block
+            if len(full_content) <= budget:
+                final_lines = full_content
+            else:
+                # Overflow! Prioritize Bottom Block (Context)
+                # Check if Bottom Block alone fits
+                if len(bottom_block) <= budget:
+                    # Bottom fits. Fill remaining budget with Top Block (from bottom up)
+                    remaining = budget - len(bottom_block)
+                    if remaining > 0:
+                        final_lines = top_block[-remaining:] + bottom_block
+                    else:
+                        final_lines = bottom_block
+                else:
+                    # Even Bottom Block is too big. Truncate it (keep Status + as many items as fit)
+                    # Status is at index 0 of bottom_block (if it exists)
+                    # We want to keep the bottom-most items? Or Top-most items (closest to Status)?
+                    # User said: "Current Status + Fixed items"
+                    # status line is usually index 0 of bottom_block. Items follow.
+                    # Wait, logic above: bottom_block = [Status, Item1, Item2...]
+                    # So if budget=3, we show [Status, Item1, Item2].
+                    final_lines = bottom_block[:budget]
+
         # Mode badge color
         mode_color = self._get_mode_color(self.state.mode)
         
+        # Pass height to Panel if provided to ensure borders are preserved
         return Panel(
-            "\n".join(lines),
+            "\n".join(final_lines),
             title=f"[bold cyan]📌 {self.state.task_name}[/bold cyan] [{mode_color}]{self.state.mode}[/{mode_color}]",
             border_style="cyan",
-            padding=(0, 1)
+            padding=(0, 1),
+            height=max_height
         )
     
     def _flatten_step(self, step: AssistantStep, is_current: bool = False) -> list[str]:
@@ -437,16 +511,30 @@ class TaskUIRenderer:
         if self.prompt_app:
             self.prompt_app.hide_task_panel()
     
-    def _update_dynamic_panel(self):
-        """Refresh dynamic panel content."""
+    def _update_dynamic_panel(self, height: Optional[int] = None):
+        """Refresh dynamic panel content.
+        
+        Args:
+            height: Optional explicit height for the rendered panel
+        """
         if not self.prompt_app:
             return
         
+        # Pull dynamic height from prompt_app if not provided explicit
+        if height is None and hasattr(self.prompt_app, "_get_task_panel_height"):
+            try:
+                # _get_task_panel_height returns prompt_toolkit Dimension
+                dim = self.prompt_app._get_task_panel_height()
+                if hasattr(dim, "max"):
+                    height = dim.max
+            except Exception:
+                pass
+
         if self.has_active_task():
             self.prompt_app.show_task_panel()
             
             # Render panel to ANSI string for prompt_toolkit
-            panel = self.render_dynamic_task_panel()
+            panel = self.render_dynamic_task_panel(max_height=height)
             if panel:
                 string_io = StringIO()
                 # Use actual terminal width

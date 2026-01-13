@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from .knowledge import KnowledgeToolSet
     from .evolution import EvolutionToolSet, EvaluatorToolSet
     from .skillbook import SkillbookToolSet
+    from .scfm import SCFMToolSet
 
 _TOOLSET_MAPPING = {
     "PythonInterpreterToolSet": ".python",
@@ -41,6 +42,7 @@ _TOOLSET_MAPPING = {
     "EvolutionToolSet": ".evolution",
     "EvaluatorToolSet": ".evolution",
     "SkillbookToolSet": ".skillbook",
+    "SCFMToolSet": ".scfm",
 }
 
 __all__ = list(_TOOLSET_MAPPING.keys())

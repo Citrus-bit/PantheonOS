@@ -60,35 +60,34 @@ Indicate the start of a task or update the current task status. This tool should
 .. code-block:: python
 
    result = await task_tools.task_boundary(
-       TaskName="Implementing Authentication",
-       Mode="EXECUTION",
-       TaskSummary="Set up project structure and created `auth.py` module",
-       TaskStatus="Adding JWT token validation",
-       PredictedTaskSize=15
+       task_name="Implementing Authentication",
+       mode="EXECUTION",
+       task_summary="Set up project structure and created `auth.py` module",
+       task_status="Adding JWT token validation",
+       predicted_task_size=15
    )
 
 **Parameters:**
 
-- ``TaskName``: Human-readable task identifier (e.g., "Researching Existing Server Implementation")
-- ``Mode``: Agent focus mode - PLANNING/EXECUTION/VERIFICATION (coding) or RESEARCH/ANALYSIS/INTERPRETATION (research)
-- ``TaskSummary``: Concise summary of accomplishments so far (1-2 lines, past tense)
-- ``TaskStatus``: Active status describing what will happen next
-- ``PredictedTaskSize``: Estimated number of tool calls to complete the task
-- ``waitForPreviousTools``: If true, wait for previous tool calls to complete (default: False)
+- ``task_name``: Human-readable task identifier (e.g., "Researching Existing Server Implementation")
+- ``mode``: Agent focus mode - PLANNING/EXECUTION/VERIFICATION (coding) or RESEARCH/ANALYSIS/INTERPRETATION (research)
+- ``task_summary``: Concise summary of accomplishments so far (1-2 lines, past tense)
+- ``task_status``: Active status describing what will happen next
+- ``predicted_task_size``: Estimated number of tool calls to complete the task
 
 **Special Value:**
 
-Use ``"%SAME%"`` for Mode, TaskName, TaskStatus, or TaskSummary to reuse the previous value.
+Use ``"%SAME%"`` for mode, task_name, task_status, or task_summary to reuse the previous value.
 
 .. code-block:: python
 
    # Update status only, keep same task name and mode
    result = await task_tools.task_boundary(
-       TaskName="%SAME%",
-       Mode="%SAME%",
-       TaskSummary="Completed authentication module with tests",
-       TaskStatus="Running final test suite",
-       PredictedTaskSize=3
+       task_name="%SAME%",
+       mode="%SAME%",
+       task_summary="Completed authentication module with tests",
+       task_status="Running final test suite",
+       predicted_task_size=3
    )
 
 **Returns:**
@@ -105,25 +104,24 @@ Communicate with the user during task execution. This is the primary way to send
 .. code-block:: python
 
    result = await task_tools.notify_user(
-       PathsToReview=["src/auth.py", "tests/test_auth.py"],
-       BlockedOnUser=True,
-       Message="## Authentication Implementation Complete\n\nI've implemented JWT-based authentication. Please review the files.",
-       ConfidenceJustification="(1) Gaps: No (2) Assumptions: No (3) Complexity: No (4) Risk: No (5) Ambiguity: No (6) Irreversible: No",
-       ConfidenceScore=0.9
+       paths_to_review=["src/auth.py", "tests/test_auth.py"],
+       blocked_on_user=True,
+       message="## Authentication Implementation Complete\n\nI've implemented JWT-based authentication. Please review the files.",
+       confidence_justification="(1) Gaps: No (2) Assumptions: No (3) Complexity: No (4) Risk: No (5) Ambiguity: No (6) Irreversible: No",
+       confidence_score=0.9
    )
 
 **Parameters:**
 
-- ``PathsToReview``: List of absolute file paths the user should review
-- ``BlockedOnUser``: True if waiting for user approval, False if just notifying
-- ``Message``: Notification message in GitHub Flavored Markdown format
-- ``ConfidenceJustification``: Answers to the 6 confidence assessment questions (Yes/No)
-- ``ConfidenceScore``: Confidence level from 0.0 to 1.0
-- ``waitForPreviousTools``: Should be True to ensure sequential execution (default: True)
+- ``paths_to_review``: List of absolute file paths the user should review
+- ``blocked_on_user``: True if waiting for user approval, False if just notifying
+- ``message``: Notification message in GitHub Flavored Markdown format
+- ``confidence_justification``: Answers to the 6 confidence assessment questions (Yes/No)
+- ``confidence_score``: Confidence level from 0.0 to 1.0
 
 **Confidence Scoring Guide:**
 
-Before setting ConfidenceScore, answer these 6 questions:
+Before setting confidence_score, answer these 6 questions:
 
 1. **Gaps** - Any missing parts?
 2. **Assumptions** - Any unverified assumptions?
@@ -176,44 +174,44 @@ Complete Coding Workflow
 
    # Start planning phase
    await task_tools.task_boundary(
-       TaskName="Add User Profile Feature",
-       Mode="PLANNING",
-       TaskSummary="Starting new feature implementation",
-       TaskStatus="Analyzing existing user model",
-       PredictedTaskSize=20
+       task_name="Add User Profile Feature",
+       mode="PLANNING",
+       task_summary="Starting new feature implementation",
+       task_status="Analyzing existing user model",
+       predicted_task_size=20
    )
 
    # Transition to execution
    await task_tools.task_boundary(
-       TaskName="%SAME%",
-       Mode="EXECUTION",
-       TaskSummary="Designed database schema and API endpoints",
-       TaskStatus="Creating user profile model",
-       PredictedTaskSize=15
+       task_name="%SAME%",
+       mode="EXECUTION",
+       task_summary="Designed database schema and API endpoints",
+       task_status="Creating user profile model",
+       predicted_task_size=15
    )
 
    # ... implement feature ...
 
    # Verification phase
    await task_tools.task_boundary(
-       TaskName="%SAME%",
-       Mode="VERIFICATION",
-       TaskSummary="Implemented profile model, API, and frontend",
-       TaskStatus="Running integration tests",
-       PredictedTaskSize=5
+       task_name="%SAME%",
+       mode="VERIFICATION",
+       task_summary="Implemented profile model, API, and frontend",
+       task_status="Running integration tests",
+       predicted_task_size=5
    )
 
    # Notify user for review
    await task_tools.notify_user(
-       PathsToReview=[
+       paths_to_review=[
            "src/models/profile.py",
            "src/api/profile.py",
            "tests/test_profile.py"
        ],
-       BlockedOnUser=True,
-       Message="## User Profile Feature Complete\n\nImplemented:\n- Profile model with avatar support\n- REST API endpoints\n- Integration tests\n\nPlease review before merge.",
-       ConfidenceJustification="(1) No (2) No (3) No (4) Yes - new DB migrations (5) No (6) No",
-       ConfidenceScore=0.75
+       blocked_on_user=True,
+       message="## User Profile Feature Complete\n\nImplemented:\n- Profile model with avatar support\n- REST API endpoints\n- Integration tests\n\nPlease review before merge.",
+       confidence_justification="(1) No (2) No (3) No (4) Yes - new DB migrations (5) No (6) No",
+       confidence_score=0.75
    )
 
 Research Workflow
@@ -223,38 +221,38 @@ Research Workflow
 
    # Research phase
    await task_tools.task_boundary(
-       TaskName="Evaluate Authentication Libraries",
-       Mode="RESEARCH",
-       TaskSummary="Starting security library evaluation",
-       TaskStatus="Surveying popular JWT libraries",
-       PredictedTaskSize=10
+       task_name="Evaluate Authentication Libraries",
+       mode="RESEARCH",
+       task_summary="Starting security library evaluation",
+       task_status="Surveying popular JWT libraries",
+       predicted_task_size=10
    )
 
    # Analysis phase
    await task_tools.task_boundary(
-       TaskName="%SAME%",
-       Mode="ANALYSIS",
-       TaskSummary="Identified 5 candidate libraries",
-       TaskStatus="Comparing security features and performance",
-       PredictedTaskSize=8
+       task_name="%SAME%",
+       mode="ANALYSIS",
+       task_summary="Identified 5 candidate libraries",
+       task_status="Comparing security features and performance",
+       predicted_task_size=8
    )
 
    # Interpretation phase
    await task_tools.task_boundary(
-       TaskName="%SAME%",
-       Mode="INTERPRETATION",
-       TaskSummary="Benchmarked all libraries, reviewed security advisories",
-       TaskStatus="Preparing recommendation summary",
-       PredictedTaskSize=3
+       task_name="%SAME%",
+       mode="INTERPRETATION",
+       task_summary="Benchmarked all libraries, reviewed security advisories",
+       task_status="Preparing recommendation summary",
+       predicted_task_size=3
    )
 
    # Notify with findings
    await task_tools.notify_user(
-       PathsToReview=[],
-       BlockedOnUser=False,
-       Message="## Library Evaluation Complete\n\n**Recommendation:** PyJWT\n\n| Library | Security | Performance | Maintenance |\n|---------|----------|-------------|-------------|\n| PyJWT | ★★★★★ | ★★★★ | Active |\n| python-jose | ★★★★ | ★★★ | Active |",
-       ConfidenceJustification="(1) No (2) No (3) No (4) No (5) No (6) No",
-       ConfidenceScore=0.95
+       paths_to_review=[],
+       blocked_on_user=False,
+       message="## Library Evaluation Complete\n\n**Recommendation:** PyJWT\n\n| Library | Security | Performance | Maintenance |\n|---------|----------|-------------|-------------|\n| PyJWT | ★★★★★ | ★★★★ | Active |\n| python-jose | ★★★★ | ★★★ | Active |",
+       confidence_justification="(1) No (2) No (3) No (4) No (5) No (6) No",
+       confidence_score=0.95
    )
 
 State Persistence
@@ -274,8 +272,8 @@ Best Practices
 
 1. **Call task_boundary first**: Always call it as the first tool in any batch
 2. **Use %SAME% for updates**: Avoid repeating unchanged values
-3. **Be concise in summaries**: Keep TaskSummary to 1-2 lines
+3. **Be concise in summaries**: Keep task_summary to 1-2 lines
 4. **Accurate confidence scoring**: Answer all 6 questions honestly
 5. **Use markdown in notifications**: Format messages for readability
-6. **Set BlockedOnUser correctly**: True only when you need approval to proceed
+6. **Set blocked_on_user correctly**: True only when you need approval to proceed
 
