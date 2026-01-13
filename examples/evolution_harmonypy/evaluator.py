@@ -297,10 +297,11 @@ def evaluate(workspace_path: str) -> Dict[str, Any]:
         }
 
     # Load TMA training data with real cell type labels
-    # HARMONY_DATA_DIR must be set by the caller (run_evolution.py) since
-    # this evaluator runs in a temp workspace where __file__ is not reliable
+    # Use absolute path since evaluator may run in temp workspace via subprocess
+    # where environment variables are not inherited
     import os
-    data_dir = Path(os.environ.get("HARMONY_DATA_DIR", "data"))
+    _default_data_dir = r"C:\Users\wzxu\Desktop\Pantheon\pantheon-agents-2\examples\evolution_harmonypy\data"
+    data_dir = Path(os.environ.get("HARMONY_DATA_DIR", _default_data_dir))
 
     try:
         X_train, batch_train, celltype_train = load_tma_data(data_dir, split="train")
@@ -314,13 +315,18 @@ def evaluate(workspace_path: str) -> Dict[str, Any]:
 
     # Run harmony on training data and measure time
     try:
+        # Convert batch labels to DataFrame for official harmonypy API
+        meta_data = pd.DataFrame({"batch": batch_train})
+
         start_time = time.time()
         hm = harmony_module.run_harmony(
             X_train,
-            batch_train,
-            n_clusters=50,
-            max_iter=10,
+            meta_data,
+            vars_use="batch",
+            nclust=50,
+            max_iter_harmony=10,
             random_state=42,
+            verbose=False,
         )
         execution_time = time.time() - start_time
 
@@ -418,8 +424,10 @@ def _evaluate_on_split(workspace_path: str, split: str) -> Dict[str, Any]:
         }
 
     # Load TMA data
+    # Use absolute path since evaluator may run in temp workspace via subprocess
     import os
-    data_dir = Path(os.environ.get("HARMONY_DATA_DIR", "data"))
+    _default_data_dir = r"C:\Users\wzxu\Desktop\Pantheon\pantheon-agents-2\examples\evolution_harmonypy\data"
+    data_dir = Path(os.environ.get("HARMONY_DATA_DIR", _default_data_dir))
 
     try:
         X, batch_labels, celltype_labels = load_tma_data(data_dir, split=split)
@@ -433,13 +441,18 @@ def _evaluate_on_split(workspace_path: str, split: str) -> Dict[str, Any]:
 
     # Run harmony
     try:
+        # Convert batch labels to DataFrame for official harmonypy API
+        meta_data = pd.DataFrame({"batch": batch_labels})
+
         start_time = time.time()
         hm = harmony_module.run_harmony(
             X,
-            batch_labels,
-            n_clusters=50,
-            max_iter=10,
+            meta_data,
+            vars_use="batch",
+            nclust=50,
+            max_iter_harmony=10,
             random_state=42,
+            verbose=False,
         )
         execution_time = time.time() - start_time
 
@@ -517,7 +530,8 @@ def evaluate_on_test(workspace_path: str) -> Dict[str, Any]:
     return _evaluate_on_split(workspace_path, "test")
 
 
-if __name__ == "__main__":
+# Guard against execution when code is injected into subprocess (where __file__ is not defined)
+if __name__ == "__main__" and "__file__" in dir():
     # Test the evaluator locally
     import os
 
