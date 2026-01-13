@@ -27,13 +27,54 @@
 
 ## Installation
 
+### Using uv (Recommended)
+
+[uv](https://github.com/astral-sh/uv) is a fast Python package manager that handles dependencies efficiently.
+
+```bash
+# Install uv (if not already installed)
+# macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# Windows
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Clone and install
+git clone https://github.com/aristoteleo/pantheon-agents.git
+cd pantheon-agents
+uv sync
+
+# With optional dependencies
+uv sync --extra knowledge  # RAG/vector search support
+uv sync --extra slack      # Slack integration
+uv sync --extra r          # R language support (requires R installed)
+```
+
+### Using pip
+
 ```bash
 # Basic installation
 pip install pantheon-agents
 
-# With all toolsets
-pip install pantheon-agents[toolsets]
+# With optional dependencies
+pip install "pantheon-agents[knowledge]"  # RAG/vector search support
+pip install "pantheon-agents[slack]"      # Slack integration
 ```
+
+### Development Installation
+
+```bash
+git clone https://github.com/aristoteleo/pantheon-agents.git
+cd pantheon-agents
+uv sync --extra dev --extra knowledge
+
+# Run tests
+uv run pytest tests/
+```
+
+## Requirements
+
+- Python 3.10+
+- API keys for LLM providers (e.g., `OPENAI_API_KEY` for OpenAI models)
 
 ## Quick Start
 
@@ -42,6 +83,10 @@ pip install pantheon-agents[toolsets]
 The easiest way to start:
 
 ```bash
+# With uv
+uv run python -m pantheon.repl
+
+# Or with pip installation
 python -m pantheon.repl
 ```
 
