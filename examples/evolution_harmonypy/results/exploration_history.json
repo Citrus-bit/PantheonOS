@@ -1,0 +1,100 @@
+{
+  "records": [
+    {
+      "iteration": 3,
+      "direction": "Replace blockwise multiplicative R-update with a full-batch mirror-descent softmax E-step using diversity logits.",
+      "category": "optimization_method",
+      "result": "success",
+      "score_delta": 0.022384704673150457,
+      "parent_generation": 0,
+      "is_algorithmic": true,
+      "match_confidence": "high",
+      "error_message": null,
+      "timestamp": 1768385600.9422293
+    },
+    {
+      "iteration": 0,
+      "direction": "Add explicit KL-based cluster batch-balance penalty to k-means objective and store mirror-descent params",
+      "category": "regularization",
+      "result": "failure",
+      "score_delta": -0.038650301022237654,
+      "parent_generation": 0,
+      "is_algorithmic": true,
+      "match_confidence": "high",
+      "error_message": null,
+      "timestamp": 1768385632.5113614
+    },
+    {
+      "iteration": 1,
+      "direction": "Add exponential annealing for sigma and theta and per-iteration correction-damping gamma in harmonize().",
+      "category": "convergence",
+      "result": "failure",
+      "score_delta": -0.060030495527552796,
+      "parent_generation": 0,
+      "is_algorithmic": true,
+      "match_confidence": "high",
+      "error_message": null,
+      "timestamp": 1768385632.6079936
+    },
+    {
+      "iteration": 6,
+      "direction": "Replaced softmax diversity-logit update with IPFP/Sinkhorn batch-marginal constrained R projection.",
+      "category": "optimization_method",
+      "result": "neutral",
+      "score_delta": -0.006070063150633409,
+      "parent_generation": 1,
+      "is_algorithmic": true,
+      "match_confidence": "high",
+      "error_message": null,
+      "timestamp": 1768385735.035971
+    },
+    {
+      "iteration": 4,
+      "direction": "Added an annealing schedule that ramps diversity (theta) and damps correction strength over iterations.",
+      "category": "convergence",
+      "result": "neutral",
+      "score_delta": -0.009467601224546818,
+      "parent_generation": 1,
+      "is_algorithmic": true,
+      "match_confidence": "high",
+      "error_message": null,
+      "timestamp": 1768385758.5324867
+    },
+    {
+      "iteration": 7,
+      "direction": "Replaced heuristic update_R with entropy-regularized Sinkhorn OT responsibility updates enforcing batch-balanced marginals.",
+      "category": "optimization_method",
+      "result": "failure",
+      "score_delta": -0.05195955169373001,
+      "parent_generation": 0,
+      "is_algorithmic": true,
+      "match_confidence": "high",
+      "error_message": null,
+      "timestamp": 1768385825.3716576
+    },
+    {
+      "iteration": 8,
+      "direction": "Introduced backtracking step-size in harmonize and replaced per-cluster ridge with low-rank ALS correction.",
+      "category": "mathematical_formulation",
+      "result": "error",
+      "score_delta": -0.6936138213523723,
+      "parent_generation": 1,
+      "is_algorithmic": true,
+      "match_confidence": "high",
+      "error_message": "Harmony execution failed: torch.linalg.solve: The solver failed because the input matrix is singular.",
+      "timestamp": 1768385848.9471629
+    },
+    {
+      "iteration": 9,
+      "direction": "Added Y-only Anderson acceleration in cluster() and replaced moe_correct_ridge call with global_correct_robust.",
+      "category": "optimization_method",
+      "result": "neutral",
+      "score_delta": -0.004133041610469124,
+      "parent_generation": 1,
+      "is_algorithmic": true,
+      "match_confidence": "high",
+      "error_message": null,
+      "timestamp": 1768385889.1685686
+    }
+  ]
+}

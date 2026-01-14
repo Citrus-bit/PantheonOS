@@ -21,6 +21,182 @@ from .program import CodebaseSnapshot, Program
 
 
 @dataclass
+class ExplorationRecord:
+    """Record of a single exploration attempt."""
+    iteration: int
+    direction: str                    # One-sentence description of the IMPLEMENTED change
+    category: str                     # Category: objective_function, optimization_method, etc.
+    result: str                       # "success", "marginal", "neutral", "failure", "error"
+    score_delta: float                # Score change (child - parent)
+    parent_generation: int            # Generation of the parent program
+    is_algorithmic: bool = True       # Whether this is an algorithmic change (vs code optimization)
+    match_confidence: str = "medium"  # How well the direction matches the diff: "high", "medium", "low"
+    error_message: Optional[str] = None  # Error message if result is "error"
+    timestamp: float = 0.0            # When this exploration was attempted
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "iteration": self.iteration,
+            "direction": self.direction,
+            "category": self.category,
+            "result": self.result,
+            "score_delta": self.score_delta,
+            "parent_generation": self.parent_generation,
+            "is_algorithmic": self.is_algorithmic,
+            "match_confidence": self.match_confidence,
+            "error_message": self.error_message,
+            "timestamp": self.timestamp,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ExplorationRecord":
+        return cls(
+            iteration=data.get("iteration", 0),
+            direction=data.get("direction", ""),
+            category=data.get("category", "other"),
+            result=data.get("result", "neutral"),
+            score_delta=data.get("score_delta", 0.0),
+            parent_generation=data.get("parent_generation", 0),
+            is_algorithmic=data.get("is_algorithmic", True),
+            match_confidence=data.get("match_confidence", "medium"),
+            error_message=data.get("error_message"),
+            timestamp=data.get("timestamp", 0.0),
+        )
+
+
+@dataclass
+class ExplorationHistory:
+    """History of exploration attempts for avoiding repetition."""
+    records: List[ExplorationRecord] = field(default_factory=list)
+
+    def add_record(self, record: ExplorationRecord) -> None:
+        """Add a new exploration record."""
+        self.records.append(record)
+
+    def get_direction_stats(self, direction: str) -> Dict[str, int]:
+        """Get statistics for a specific direction (or similar)."""
+        # Simple exact match for now, could use fuzzy matching later
+        matching = [r for r in self.records if r.direction.lower() == direction.lower()]
+        return {
+            "attempts": len(matching),
+            "successes": sum(1 for r in matching if r.result == "success"),
+            "failures": sum(1 for r in matching if r.result == "failure"),
+            "errors": sum(1 for r in matching if r.result == "error"),
+        }
+
+    def get_successful_directions(self, max_count: int = 5) -> List[str]:
+        """Get list of successful directions (deduplicated)."""
+        seen = set()
+        result = []
+        for r in reversed(self.records):  # Most recent first
+            if r.result in ("success", "marginal") and r.is_algorithmic:
+                direction_key = r.direction.lower()
+                if direction_key not in seen:
+                    seen.add(direction_key)
+                    result.append(r.direction)
+                    if len(result) >= max_count:
+                        break
+        return result
+
+    def get_failed_directions(self, max_count: int = 5) -> List[str]:
+        """Get list of failed directions (deduplicated)."""
+        seen = set()
+        result = []
+        for r in reversed(self.records):
+            if r.result == "failure" and r.is_algorithmic:
+                direction_key = r.direction.lower()
+                if direction_key not in seen:
+                    seen.add(direction_key)
+                    result.append(r.direction)
+                    if len(result) >= max_count:
+                        break
+        return result
+
+    def get_recent_records(self, max_count: int = 10, algorithmic_only: bool = True) -> List[ExplorationRecord]:
+        """Get recent exploration records."""
+        if algorithmic_only:
+            filtered = [r for r in self.records if r.is_algorithmic]
+        else:
+            filtered = self.records
+        return filtered[-max_count:]
+
+    def format_for_prompt(
+        self,
+        max_recent: int = 10,
+        max_directions: int = 5,
+        max_direction_chars: int = 80,
+        max_total_chars: int = 2000,
+    ) -> str:
+        """
+        Format exploration history for inclusion in analyzer prompt.
+
+        Args:
+            max_recent: Maximum number of recent records to show
+            max_directions: Maximum number of successful/failed directions to show
+            max_direction_chars: Maximum characters per direction string
+            max_total_chars: Maximum total characters for the entire history text
+
+        Returns:
+            Formatted history string, truncated if necessary
+        """
+        def truncate(s: str, max_len: int) -> str:
+            if len(s) <= max_len:
+                return s
+            return s[:max_len-3] + "..."
+
+        lines = []
+
+        # Recent attempts
+        recent = self.get_recent_records(max_recent, algorithmic_only=True)
+        if recent:
+            lines.append("### Recent Exploration Attempts")
+            for r in recent:
+                icon = {"success": "✓", "marginal": "○", "neutral": "·", "failure": "✗", "error": "⚠"}.get(r.result, "?")
+                delta_str = f"{r.score_delta:+.1%}" if r.score_delta != 0 else "0%"
+                direction_short = truncate(r.direction, max_direction_chars)
+                lines.append(f"- {icon} \"{direction_short}\" ({delta_str})")
+            lines.append("")
+
+        # Successful directions
+        successful = self.get_successful_directions(max_directions)
+        if successful:
+            lines.append("### Successful Directions (worth exploring further)")
+            for d in successful:
+                lines.append(f"- {truncate(d, max_direction_chars)}")
+            lines.append("")
+
+        # Failed directions
+        failed = self.get_failed_directions(max_directions)
+        if failed:
+            lines.append("### Failed Directions (avoid these)")
+            for d in failed:
+                lines.append(f"- {truncate(d, max_direction_chars)}")
+            lines.append("")
+
+        if lines:
+            lines.insert(0, "## Exploration History\n")
+            lines.append("IMPORTANT: Propose something DIFFERENT from the above attempts. Do not repeat failed directions.")
+
+        result = "\n".join(lines)
+
+        # Truncate if over total limit
+        if len(result) > max_total_chars:
+            result = result[:max_total_chars-50] + "\n\n... (history truncated)"
+
+        return result
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "records": [r.to_dict() for r in self.records],
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ExplorationHistory":
+        records = [ExplorationRecord.from_dict(r) for r in data.get("records", [])]
+        return cls(records=records)
+
+
+@dataclass
 class EvolutionDatabase:
     """
     Program database with MAP-Elites and island-based evolution.
@@ -44,6 +220,9 @@ class EvolutionDatabase:
     # Statistics
     total_added: int = 0
     total_improved: int = 0
+
+    # Exploration history for avoiding repeated attempts
+    exploration_history: ExplorationHistory = field(default_factory=ExplorationHistory)
 
     # Observed feature ranges: {feature_name: (min_value, max_value)}
     feature_ranges: Dict[str, Tuple[float, float]] = field(default_factory=dict)
@@ -554,6 +733,10 @@ class EvolutionDatabase:
         with open(save_dir / "feature_maps.json", "w") as f:
             json.dump(feature_maps_data, f, indent=2)
 
+        # Save exploration history
+        with open(save_dir / "exploration_history.json", "w") as f:
+            json.dump(self.exploration_history.to_dict(), f, indent=2)
+
         logger.info(f"Saved database with {len(self.programs)} programs to {path}")
 
     @classmethod
@@ -615,6 +798,13 @@ class EvolutionDatabase:
             db.islands.append(set())
         while len(db.island_feature_maps) < config.num_islands:
             db.island_feature_maps.append({})
+
+        # Load exploration history
+        exploration_history_path = load_dir / "exploration_history.json"
+        if exploration_history_path.exists():
+            with open(exploration_history_path, "r") as f:
+                history_data = json.load(f)
+            db.exploration_history = ExplorationHistory.from_dict(history_data)
 
         logger.info(f"Loaded database with {len(db.programs)} programs from {path}")
         return db

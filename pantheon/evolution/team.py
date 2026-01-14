@@ -20,13 +20,14 @@ from typing import Any, Dict, List, Optional, Union
 from pantheon.utils.log import logger
 
 from .config import EvolutionConfig
-from .database import EvolutionDatabase
+from .database import EvolutionDatabase, ExplorationRecord
 from .evaluator import EvaluationResult, HybridEvaluator
 from .program import CodebaseSnapshot, Program
 from .prompt_builder import (
     EvolutionPromptBuilder,
     MUTATION_SYSTEM_PROMPT_CODEBASE,
     MUTATION_SYSTEM_PROMPT_SIMPLE,
+    SUMMARIZER_SYSTEM_PROMPT,
 )
 from .result import EvolutionResult, IterationResult
 from .utils.diff import parse_diff, apply_diff
@@ -187,6 +188,142 @@ class EvolutionTeam:
         )
 
         return analyzer, direction, exploration_prob
+
+    def _create_summarizer(self):
+        """
+        Create summarizer agent for extracting exploration directions.
+
+        The summarizer is a lightweight agent that extracts structured
+        direction information from analyzer output.
+
+        Returns:
+            Summarizer agent
+        """
+        from pantheon.agent import Agent
+
+        return Agent(
+            name="direction-summarizer",
+            instructions=SUMMARIZER_SYSTEM_PROMPT,
+            model="low",  # Use low-cost model for summarization
+            use_memory=False,
+        )
+
+    async def _extract_direction(
+        self,
+        analysis_text: str,
+        diff_text: str = "",
+        timeout: float = 30.0,
+    ) -> Dict[str, Any]:
+        """
+        Extract exploration direction from analyzer output and diff using summarizer.
+
+        The summarizer analyzes both the proposed changes (analysis) and the actual
+        code changes (diff) to determine what was actually implemented.
+
+        Args:
+            analysis_text: The analyzer's output text with proposed changes
+            diff_text: The actual code diff that was applied
+            timeout: Timeout for summarizer call
+
+        Returns:
+            Dict with keys: direction, category, is_algorithmic, match_confidence
+            Returns default values if extraction fails
+        """
+        default_result = {
+            "direction": "No clear direction proposed",
+            "category": "other",
+            "is_algorithmic": False,
+            "match_confidence": "low",
+        }
+
+        if not analysis_text or len(analysis_text.strip()) < 20:
+            return default_result
+
+        try:
+            summarizer = self._create_summarizer()
+
+            # Build prompt with both analysis and diff
+            prompt_parts = ["## ANALYSIS (proposed changes):", analysis_text]
+
+            if diff_text and diff_text.strip():
+                # Truncate diff if too long
+                max_diff_len = 3000
+                if len(diff_text) > max_diff_len:
+                    diff_text = diff_text[:max_diff_len] + "\n... (truncated)"
+                prompt_parts.append("\n## DIFF (actual code changes):")
+                prompt_parts.append(diff_text)
+            else:
+                prompt_parts.append("\n## DIFF (actual code changes):")
+                prompt_parts.append("(No code changes were made)")
+
+            prompt_parts.append("\n## Task:")
+            prompt_parts.append("Identify which proposed direction was actually implemented in the diff.")
+
+            prompt = "\n".join(prompt_parts)
+
+            response = await asyncio.wait_for(
+                summarizer.run(prompt, update_memory=False),
+                timeout=timeout
+            )
+
+            # Parse JSON from response
+            content = response.content.strip()
+            # Handle potential markdown code blocks
+            if content.startswith("```"):
+                lines = content.split("\n")
+                content = "\n".join(lines[1:-1])  # Remove first and last lines
+
+            result = json.loads(content)
+
+            # Validate required fields
+            if "direction" not in result:
+                result["direction"] = default_result["direction"]
+            if "category" not in result:
+                result["category"] = default_result["category"]
+            if "is_algorithmic" not in result:
+                result["is_algorithmic"] = default_result["is_algorithmic"]
+            if "match_confidence" not in result:
+                result["match_confidence"] = default_result["match_confidence"]
+
+            return result
+
+        except asyncio.TimeoutError:
+            logger.debug("Summarizer timeout, using default direction")
+            return default_result
+        except json.JSONDecodeError as e:
+            logger.debug(f"Failed to parse summarizer JSON: {e}")
+            return default_result
+        except Exception as e:
+            logger.debug(f"Direction extraction failed: {e}")
+            return default_result
+
+    def _classify_result(
+        self,
+        score_delta: float,
+        has_error: bool = False,
+    ) -> str:
+        """
+        Classify the result of an exploration attempt.
+
+        Args:
+            score_delta: Score change (child - parent)
+            has_error: Whether evaluation had an error
+
+        Returns:
+            One of: "success", "marginal", "neutral", "failure", "error"
+        """
+        if has_error:
+            return "error"
+
+        # Thresholds for classification
+        if score_delta > 0.01:  # > +1%
+            return "success"
+        elif score_delta > 0:  # 0 to +1%
+            return "marginal"
+        elif score_delta > -0.01:  # -1% to 0
+            return "neutral"
+        else:  # < -1%
+            return "failure"
 
     async def _ensure_evaluator(self):
         """Ensure evaluator is initialized."""
@@ -574,6 +711,7 @@ class EvolutionTeam:
         # Build prompt (with or without analyzer)
         analysis_text = ""  # Store analyzer output for program record
         analyzer_direction = ""  # Track exploration vs exploitation direction
+        extracted_direction = None  # Direction info from summarizer
         iteration_cost = 0.0  # Track LLM cost for this iteration
         if self.config.use_analyzer:
             # === Analyzer Phase (full context) ===
@@ -583,6 +721,15 @@ class EvolutionTeam:
                 analyzer, analyzer_direction, exploration_prob = self._create_analyzer(
                     generation=parent.generation
                 )
+
+                # Build analysis prompt with exploration history
+                exploration_history_text = self.database.exploration_history.format_for_prompt(
+                    max_recent=self.config.exploration_history_max_recent,
+                    max_directions=self.config.exploration_history_max_directions,
+                    max_direction_chars=self.config.exploration_history_max_chars,
+                    max_total_chars=self.config.exploration_history_max_total,
+                )
+
                 analysis_prompt = self.prompt_builder.build_analysis_prompt(
                     parent=parent,
                     objective=self.objective,
@@ -590,6 +737,7 @@ class EvolutionTeam:
                     inspirations=effective_inspirations,
                     artifacts=parent.artifacts,
                     iteration=iteration,
+                    exploration_history=exploration_history_text if analyzer_direction == "exploration" else None,
                 )
                 analysis_response = await asyncio.wait_for(
                     analyzer.run(analysis_prompt, update_memory=False),
@@ -602,6 +750,7 @@ class EvolutionTeam:
                     f"{log_prefix} Analysis ({analyzer_direction}, p={exploration_prob:.2f}): "
                     f"{analysis_time:.1f}s (${iteration_cost:.4f})"
                 )
+                # Note: Direction extraction moved to after mutation to include diff
             except asyncio.TimeoutError:
                 analysis_time = time.time() - analysis_start
                 logger.warning(f"{log_prefix} Analyzer timeout after {analysis_time:.1f}s, skipping iteration")
@@ -682,6 +831,7 @@ class EvolutionTeam:
             )
 
         # Apply mutation
+        mutation_applied = False  # Track if code actually changed
         try:
             child_snapshot = self._apply_mutation(parent.snapshot, response.content)
             default_file = next(iter(parent.snapshot.files.keys()), "main.py")
@@ -691,11 +841,18 @@ class EvolutionTeam:
             logger.warning(f"{log_prefix} Failed to apply mutation: {e}")
             child_snapshot = parent.snapshot
 
+        # Check if code actually changed
+        diff_from_parent = child_snapshot.diff_from(parent.snapshot)
+        if diff_from_parent and diff_from_parent.strip():
+            mutation_applied = True
+        else:
+            logger.warning(f"{log_prefix} Mutation produced no code changes (SEARCH blocks may not have matched)")
+
         # Create child program
         child = Program(
             id=str(uuid.uuid4())[:8],
             snapshot=child_snapshot,
-            diff_from_parent=child_snapshot.diff_from(parent.snapshot),
+            diff_from_parent=diff_from_parent,
             parent_id=parent.id,
             generation=parent.generation + 1,
             prompt_used=prompt if self.config.save_prompts else "",
@@ -728,6 +885,51 @@ class EvolutionTeam:
 
         # Add to database (thread-safe)
         accepted = await self.database.add_async(child)
+
+        # Extract direction using summarizer (for exploration mode, after we have the diff)
+        if analyzer_direction == "exploration" and analysis_text:
+            extracted_direction = await self._extract_direction(
+                analysis_text,
+                diff_text=diff_from_parent or "",
+                timeout=self.config.summarizer_timeout,
+            )
+            logger.debug(
+                f"{log_prefix} Direction extracted: '{extracted_direction.get('direction', 'N/A')[:50]}...' "
+                f"(confidence: {extracted_direction.get('match_confidence', 'N/A')})"
+            )
+
+        # Record exploration history (only for exploration mode with extracted direction AND actual code change)
+        if extracted_direction and extracted_direction.get("direction") not in ("No clear direction proposed", "No implementation found"):
+            if not mutation_applied:
+                # Code didn't change - don't record as success/failure, record as mutation_failed
+                logger.info(
+                    f"{log_prefix} Skipping exploration record: mutation produced no code changes "
+                    f"(direction: '{extracted_direction.get('direction', '')[:50]}...')"
+                )
+            else:
+                has_error = eval_result.metrics.get("error") is not None or "error" in str(eval_result.artifacts).lower()
+                result_classification = self._classify_result(improvement, has_error)
+
+                record = ExplorationRecord(
+                    iteration=iteration,
+                    direction=extracted_direction.get("direction", ""),
+                    category=extracted_direction.get("category", "other"),
+                    result=result_classification,
+                    score_delta=improvement,
+                    parent_generation=parent.generation,
+                    is_algorithmic=extracted_direction.get("is_algorithmic", False),
+                    match_confidence=extracted_direction.get("match_confidence", "medium"),
+                    error_message=eval_result.artifacts.get("evaluation_error") if has_error else None,
+                    timestamp=time.time(),
+                )
+
+                # Thread-safe add to history
+                async with self.database._lock:
+                    self.database.exploration_history.add_record(record)
+
+                logger.debug(
+                    f"{log_prefix} Recorded exploration: '{record.direction[:40]}...' -> {result_classification}"
+                )
 
         total_time = time.time() - iter_start
 

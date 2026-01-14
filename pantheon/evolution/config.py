@@ -81,6 +81,14 @@ class EvolutionConfig:
     analyzer_exploration_final: float = 0.1  # Minimum exploration probability
     analyzer_exploration_decay_generations: int = 10  # Generations to decay to final probability
 
+    # === Exploration History Parameters ===
+    # Used to avoid repeated exploration attempts
+    summarizer_timeout: int = 30  # Timeout for summarizer agent (seconds)
+    exploration_history_max_recent: int = 10  # Max recent records to show in prompt
+    exploration_history_max_directions: int = 5  # Max successful/failed directions to show
+    exploration_history_max_chars: int = 80  # Max characters per direction string
+    exploration_history_max_total: int = 2000  # Max total characters for history in prompt
+
     # === Model Configuration ===
     mutator_model: str = "normal"
     feedback_model: str = "normal"
@@ -179,6 +187,11 @@ class EvolutionConfig:
             "analyzer_exploration_initial": self.analyzer_exploration_initial,
             "analyzer_exploration_final": self.analyzer_exploration_final,
             "analyzer_exploration_decay_generations": self.analyzer_exploration_decay_generations,
+            "summarizer_timeout": self.summarizer_timeout,
+            "exploration_history_max_recent": self.exploration_history_max_recent,
+            "exploration_history_max_directions": self.exploration_history_max_directions,
+            "exploration_history_max_chars": self.exploration_history_max_chars,
+            "exploration_history_max_total": self.exploration_history_max_total,
             "mutator_model": self.mutator_model,
             "feedback_model": self.feedback_model,
             "db_path": self.db_path,
@@ -232,6 +245,11 @@ class EvolutionConfig:
             "analyzer_exploration_initial",
             "analyzer_exploration_final",
             "analyzer_exploration_decay_generations",
+            "summarizer_timeout",
+            "exploration_history_max_recent",
+            "exploration_history_max_directions",
+            "exploration_history_max_chars",
+            "exploration_history_max_total",
             "mutator_model",
             "feedback_model",
             "db_path",

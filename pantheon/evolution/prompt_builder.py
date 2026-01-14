@@ -207,6 +207,42 @@ Think like a performance engineer. The algorithm is sound; your job is to make t
 """
 
 
+# Summarizer prompt for extracting exploration directions
+SUMMARIZER_SYSTEM_PROMPT = """You are a technical summarizer. Your job is to identify which optimization direction was ACTUALLY IMPLEMENTED in code changes.
+
+You will receive:
+1. An ANALYSIS that proposes one or more optimization directions
+2. A DIFF showing the actual code changes made
+
+Your task: Determine which proposed direction (if any) was actually implemented in the diff.
+
+Output a JSON object with exactly these fields:
+{
+    "direction": "One sentence describing the change that was ACTUALLY IMPLEMENTED (10-20 words)",
+    "category": "One of: objective_function | optimization_method | regularization | convergence | mathematical_formulation | implementation | other",
+    "is_algorithmic": true or false,
+    "match_confidence": "high | medium | low"
+}
+
+Guidelines:
+- "direction": Describe what was ACTUALLY changed in the code, not what was proposed
+- "category": Classify the type of change based on what was implemented
+- "is_algorithmic": true if the change modifies mathematical formulation or algorithm logic; false for code optimizations (vectorization, caching, etc.)
+- "match_confidence":
+  - "high": The diff clearly implements one of the proposed directions
+  - "medium": The diff partially implements or is related to a proposed direction
+  - "low": The diff doesn't clearly match any proposed direction
+
+If the diff is empty or doesn't implement any meaningful change:
+{"direction": "No implementation found", "category": "other", "is_algorithmic": false, "match_confidence": "low"}
+
+If the diff implements something completely different from the analysis:
+{"direction": "<describe what was actually implemented>", "category": "...", "is_algorithmic": ..., "match_confidence": "low"}
+
+Output ONLY the JSON object, no other text.
+"""
+
+
 class EvolutionPromptBuilder:
     """
     Builds prompts for the mutation agent.
@@ -528,6 +564,7 @@ Provide your changes now:"""
         inspirations: Optional[List[Program]] = None,
         artifacts: Optional[Dict[str, Any]] = None,
         iteration: Optional[int] = None,
+        exploration_history: Optional[str] = None,
     ) -> str:
         """
         Build prompt for analyzer agent with full context.
@@ -542,6 +579,7 @@ Provide your changes now:"""
             inspirations: Diverse inspiration programs
             artifacts: Evaluation artifacts/feedback
             iteration: Current iteration number
+            exploration_history: Pre-formatted exploration history text (for exploration mode)
 
         Returns:
             Formatted prompt string for analyzer
@@ -550,6 +588,10 @@ Provide your changes now:"""
 
         # Header with objective
         parts.append(self._build_objective_section(objective, iteration))
+
+        # Exploration history (if provided, appears early to inform analysis)
+        if exploration_history and exploration_history.strip():
+            parts.append(exploration_history)
 
         # Current program with full details
         parts.append(self._build_current_program_section(parent))
