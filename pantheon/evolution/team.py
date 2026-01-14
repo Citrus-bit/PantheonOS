@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Union
 from pantheon.utils.log import logger
 
 from .config import EvolutionConfig
-from .database import EvolutionDatabase, ExplorationRecord
+from .database import EvolutionDatabase
 from .evaluator import EvaluationResult, HybridEvaluator
 from .program import CodebaseSnapshot, Program
 from .prompt_builder import (
@@ -44,6 +44,37 @@ def think(thought: str) -> str:
         Acknowledgment that thinking was recorded
     """
     return "Thought recorded. Continue your analysis."
+
+
+def compute_deltas(
+    parent: Program,
+    child: Program,
+    feature_dimensions: List[str],
+) -> tuple:
+    """
+    Compute fitness and metrics deltas between parent and child.
+
+    Args:
+        parent: Parent program
+        child: Child program
+        feature_dimensions: Feature dimensions for fitness calculation
+
+    Returns:
+        Tuple of (fitness_delta, metrics_delta)
+        - fitness_delta: Change in combined_score (fitness)
+        - metrics_delta: Dict of per-metric changes (missing metrics treated as 0)
+    """
+    # fitness_delta uses combined_score (fitness_score)
+    fitness_delta = child.fitness_score(feature_dimensions) - parent.fitness_score(feature_dimensions)
+
+    # metrics_delta records per-metric changes
+    all_keys = set(parent.metrics.keys()) | set(child.metrics.keys())
+    metrics_delta = {
+        key: child.metrics.get(key, 0.0) - parent.metrics.get(key, 0.0)
+        for key in all_keys
+    }
+
+    return fitness_delta, metrics_delta
 
 
 def extract_cost_from_response(response) -> float:
@@ -710,6 +741,7 @@ class EvolutionTeam:
 
         # Build prompt (with or without analyzer)
         analysis_text = ""  # Store analyzer output for program record
+        analysis_prompt = ""  # Store analyzer prompt for program record
         analyzer_direction = ""  # Track exploration vs exploitation direction
         extracted_direction = None  # Direction info from summarizer
         iteration_cost = 0.0  # Track LLM cost for this iteration
@@ -722,12 +754,16 @@ class EvolutionTeam:
                     generation=parent.generation
                 )
 
-                # Build analysis prompt with exploration history
-                exploration_history_text = self.database.exploration_history.format_for_prompt(
-                    max_recent=self.config.exploration_history_max_recent,
-                    max_directions=self.config.exploration_history_max_directions,
-                    max_direction_chars=self.config.exploration_history_max_chars,
-                    max_total_chars=self.config.exploration_history_max_total,
+                # Build evolution history from sibling and ancestor summaries
+                sibling_summaries = self.database.get_sibling_summaries(parent.id)
+                ancestor_summaries = self.database.get_ancestor_summaries(parent.id)
+                evolution_history_text = self.prompt_builder.build_evolution_history_section(
+                    sibling_summaries=sibling_summaries,
+                    ancestor_summaries=ancestor_summaries,
+                    parent_order=parent.order or 0,
+                    max_siblings=self.config.evolution_history_max_siblings,
+                    max_ancestors=self.config.evolution_history_max_ancestors,
+                    max_chars=self.config.evolution_history_max_chars,
                 )
 
                 analysis_prompt = self.prompt_builder.build_analysis_prompt(
@@ -737,8 +773,9 @@ class EvolutionTeam:
                     inspirations=effective_inspirations,
                     artifacts=parent.artifacts,
                     iteration=iteration,
-                    exploration_history=exploration_history_text if analyzer_direction == "exploration" else None,
+                    exploration_history=evolution_history_text,  # Always include history
                 )
+                # analysis_prompt is already stored above for program record
                 analysis_response = await asyncio.wait_for(
                     analyzer.run(analysis_prompt, update_memory=False),
                     timeout=self.config.analyzer_timeout
@@ -855,7 +892,8 @@ class EvolutionTeam:
             diff_from_parent=diff_from_parent,
             parent_id=parent.id,
             generation=parent.generation + 1,
-            prompt_used=prompt if self.config.save_prompts else "",
+            mutator_prompt_used=prompt if self.config.save_prompts else "",
+            analysis_prompt_used=analysis_prompt if self.config.save_prompts else "",
             analysis_used=analysis_text if self.config.save_prompts else "",
         )
 
@@ -883,53 +921,31 @@ class EvolutionTeam:
         if metric_parts:
             logger.info(f"{log_prefix} Metrics: {', '.join(metric_parts)}")
 
-        # Add to database (thread-safe)
-        accepted = await self.database.add_async(child)
-
-        # Extract direction using summarizer (for exploration mode, after we have the diff)
-        if analyzer_direction == "exploration" and analysis_text:
+        # Extract direction using summarizer (always, not just exploration mode)
+        if analysis_text and mutation_applied:
             extracted_direction = await self._extract_direction(
                 analysis_text,
                 diff_text=diff_from_parent or "",
                 timeout=self.config.summarizer_timeout,
             )
+            # Store mutation summary in child program
+            if extracted_direction.get("direction") not in ("No clear direction proposed", "No implementation found"):
+                child.mutation_summary = extracted_direction.get("direction", "")
+                child.mutation_category = extracted_direction.get("category", "other")
+                child.is_algorithmic = extracted_direction.get("is_algorithmic", True)
+
             logger.debug(
                 f"{log_prefix} Direction extracted: '{extracted_direction.get('direction', 'N/A')[:50]}...' "
                 f"(confidence: {extracted_direction.get('match_confidence', 'N/A')})"
             )
 
-        # Record exploration history (only for exploration mode with extracted direction AND actual code change)
-        if extracted_direction and extracted_direction.get("direction") not in ("No clear direction proposed", "No implementation found"):
-            if not mutation_applied:
-                # Code didn't change - don't record as success/failure, record as mutation_failed
-                logger.info(
-                    f"{log_prefix} Skipping exploration record: mutation produced no code changes "
-                    f"(direction: '{extracted_direction.get('direction', '')[:50]}...')"
-                )
-            else:
-                has_error = eval_result.metrics.get("error") is not None or "error" in str(eval_result.artifacts).lower()
-                result_classification = self._classify_result(improvement, has_error)
+        # Compute fitness and metrics deltas
+        child.fitness_delta, child.metrics_delta = compute_deltas(
+            parent, child, self.config.feature_dimensions
+        )
 
-                record = ExplorationRecord(
-                    iteration=iteration,
-                    direction=extracted_direction.get("direction", ""),
-                    category=extracted_direction.get("category", "other"),
-                    result=result_classification,
-                    score_delta=improvement,
-                    parent_generation=parent.generation,
-                    is_algorithmic=extracted_direction.get("is_algorithmic", False),
-                    match_confidence=extracted_direction.get("match_confidence", "medium"),
-                    error_message=eval_result.artifacts.get("evaluation_error") if has_error else None,
-                    timestamp=time.time(),
-                )
-
-                # Thread-safe add to history
-                async with self.database._lock:
-                    self.database.exploration_history.add_record(record)
-
-                logger.debug(
-                    f"{log_prefix} Recorded exploration: '{record.direction[:40]}...' -> {result_classification}"
-                )
+        # Add to database (thread-safe)
+        accepted = await self.database.add_async(child)
 
         total_time = time.time() - iter_start
 

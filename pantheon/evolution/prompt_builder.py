@@ -243,6 +243,31 @@ Output ONLY the JSON object, no other text.
 """
 
 
+def format_metrics_delta(metrics_delta: Dict[str, float], max_metrics: int = 3) -> str:
+    """
+    Format metrics delta for display in prompts.
+
+    Shows the metrics with the largest changes.
+
+    Args:
+        metrics_delta: Dict of metric name -> change value
+        max_metrics: Maximum number of metrics to show
+
+    Returns:
+        Formatted string like "mixing:+2.3%, bio:-0.5%"
+    """
+    if not metrics_delta:
+        return ""
+    # Sort by absolute value, take largest changes
+    sorted_items = sorted(metrics_delta.items(), key=lambda x: abs(x[1]), reverse=True)
+    parts = []
+    for key, val in sorted_items[:max_metrics]:
+        # Shorten metric names: remove "_score" suffix and underscores
+        short_key = key.replace("_score", "").replace("_", "")[:8]
+        parts.append(f"{short_key}:{val:+.1%}")
+    return ", ".join(parts)
+
+
 class EvolutionPromptBuilder:
     """
     Builds prompts for the mutation agent.
@@ -555,6 +580,70 @@ Provide your changes now:"""
             truncated = truncated[:last_newline]
 
         return truncated + "\n# ... (truncated)"
+
+    def build_evolution_history_section(
+        self,
+        sibling_summaries: List[Dict[str, Any]],
+        ancestor_summaries: List[Dict[str, Any]],
+        parent_order: int,
+        max_siblings: int = 5,
+        max_ancestors: int = 10,
+        max_chars: int = 2000,
+    ) -> str:
+        """
+        Build evolution history section for analyzer prompt.
+
+        Combines sibling attempts (same parent) and ancestor chain evolution path.
+
+        Args:
+            sibling_summaries: List of sibling mutation summaries from database
+            ancestor_summaries: List of ancestor mutation summaries from database
+            parent_order: Order number of the parent program
+            max_siblings: Maximum number of sibling attempts to show
+            max_ancestors: Maximum number of ancestor steps to show
+            max_chars: Maximum total characters for history section
+
+        Returns:
+            Formatted history string for inclusion in prompt
+        """
+        lines = ["## Evolution History\n"]
+
+        # Part A: Sibling attempts (same parent)
+        if sibling_summaries:
+            lines.append(f"### Sibling Attempts (same parent #{parent_order})")
+            for s in sibling_summaries[:max_siblings]:
+                fd = s.get("fitness_delta") or 0
+                icon = "✓" if fd > 0.01 else "✗" if fd < -0.01 else "·"
+                # Show fitness_delta and detailed metrics
+                fitness_str = f"{fd:+.1%}" if s.get("fitness_delta") is not None else "?"
+                detail_str = format_metrics_delta(s.get("metrics_delta", {}))
+                delta_str = f"{fitness_str}" + (f" [{detail_str}]" if detail_str else "")
+                tag = "algo" if s.get("is_algorithmic", True) else "impl"
+                summary_text = s.get("summary", "")[:60]
+                lines.append(f"- {icon} \"{summary_text}\" ({delta_str}) [{tag}]")
+            lines.append("")
+
+        # Part B: Ancestor chain evolution path
+        if ancestor_summaries:
+            lines.append("### Evolution Path (root → current parent)")
+            for i, s in enumerate(ancestor_summaries[:max_ancestors]):
+                fd = s.get("fitness_delta")
+                if fd is not None:
+                    fitness_str = f"{fd:+.1%}"
+                    detail_str = format_metrics_delta(s.get("metrics_delta", {}))
+                    delta_str = f"{fitness_str}" + (f" [{detail_str}]" if detail_str else "")
+                else:
+                    delta_str = "base"
+                order = s.get("order", "?")
+                summary_text = s.get("summary", "")[:50]
+                lines.append(f"- Step {i}: #{order} \"{summary_text}\" ({delta_str})")
+            lines.append("")
+
+        if sibling_summaries or ancestor_summaries:
+            lines.append("NOTE: Learn from successful directions. Avoid repeating failed attempts.")
+
+        result = "\n".join(lines)
+        return result[:max_chars] if len(result) > max_chars else result
 
     def build_analysis_prompt(
         self,

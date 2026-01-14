@@ -12,188 +12,13 @@ import os
 import random
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 
 from pantheon.utils.log import logger
 
 from .config import EvolutionConfig
 from .program import CodebaseSnapshot, Program
-
-
-@dataclass
-class ExplorationRecord:
-    """Record of a single exploration attempt."""
-    iteration: int
-    direction: str                    # One-sentence description of the IMPLEMENTED change
-    category: str                     # Category: objective_function, optimization_method, etc.
-    result: str                       # "success", "marginal", "neutral", "failure", "error"
-    score_delta: float                # Score change (child - parent)
-    parent_generation: int            # Generation of the parent program
-    is_algorithmic: bool = True       # Whether this is an algorithmic change (vs code optimization)
-    match_confidence: str = "medium"  # How well the direction matches the diff: "high", "medium", "low"
-    error_message: Optional[str] = None  # Error message if result is "error"
-    timestamp: float = 0.0            # When this exploration was attempted
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "iteration": self.iteration,
-            "direction": self.direction,
-            "category": self.category,
-            "result": self.result,
-            "score_delta": self.score_delta,
-            "parent_generation": self.parent_generation,
-            "is_algorithmic": self.is_algorithmic,
-            "match_confidence": self.match_confidence,
-            "error_message": self.error_message,
-            "timestamp": self.timestamp,
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ExplorationRecord":
-        return cls(
-            iteration=data.get("iteration", 0),
-            direction=data.get("direction", ""),
-            category=data.get("category", "other"),
-            result=data.get("result", "neutral"),
-            score_delta=data.get("score_delta", 0.0),
-            parent_generation=data.get("parent_generation", 0),
-            is_algorithmic=data.get("is_algorithmic", True),
-            match_confidence=data.get("match_confidence", "medium"),
-            error_message=data.get("error_message"),
-            timestamp=data.get("timestamp", 0.0),
-        )
-
-
-@dataclass
-class ExplorationHistory:
-    """History of exploration attempts for avoiding repetition."""
-    records: List[ExplorationRecord] = field(default_factory=list)
-
-    def add_record(self, record: ExplorationRecord) -> None:
-        """Add a new exploration record."""
-        self.records.append(record)
-
-    def get_direction_stats(self, direction: str) -> Dict[str, int]:
-        """Get statistics for a specific direction (or similar)."""
-        # Simple exact match for now, could use fuzzy matching later
-        matching = [r for r in self.records if r.direction.lower() == direction.lower()]
-        return {
-            "attempts": len(matching),
-            "successes": sum(1 for r in matching if r.result == "success"),
-            "failures": sum(1 for r in matching if r.result == "failure"),
-            "errors": sum(1 for r in matching if r.result == "error"),
-        }
-
-    def get_successful_directions(self, max_count: int = 5) -> List[str]:
-        """Get list of successful directions (deduplicated)."""
-        seen = set()
-        result = []
-        for r in reversed(self.records):  # Most recent first
-            if r.result in ("success", "marginal") and r.is_algorithmic:
-                direction_key = r.direction.lower()
-                if direction_key not in seen:
-                    seen.add(direction_key)
-                    result.append(r.direction)
-                    if len(result) >= max_count:
-                        break
-        return result
-
-    def get_failed_directions(self, max_count: int = 5) -> List[str]:
-        """Get list of failed directions (deduplicated)."""
-        seen = set()
-        result = []
-        for r in reversed(self.records):
-            if r.result == "failure" and r.is_algorithmic:
-                direction_key = r.direction.lower()
-                if direction_key not in seen:
-                    seen.add(direction_key)
-                    result.append(r.direction)
-                    if len(result) >= max_count:
-                        break
-        return result
-
-    def get_recent_records(self, max_count: int = 10, algorithmic_only: bool = True) -> List[ExplorationRecord]:
-        """Get recent exploration records."""
-        if algorithmic_only:
-            filtered = [r for r in self.records if r.is_algorithmic]
-        else:
-            filtered = self.records
-        return filtered[-max_count:]
-
-    def format_for_prompt(
-        self,
-        max_recent: int = 10,
-        max_directions: int = 5,
-        max_direction_chars: int = 80,
-        max_total_chars: int = 2000,
-    ) -> str:
-        """
-        Format exploration history for inclusion in analyzer prompt.
-
-        Args:
-            max_recent: Maximum number of recent records to show
-            max_directions: Maximum number of successful/failed directions to show
-            max_direction_chars: Maximum characters per direction string
-            max_total_chars: Maximum total characters for the entire history text
-
-        Returns:
-            Formatted history string, truncated if necessary
-        """
-        def truncate(s: str, max_len: int) -> str:
-            if len(s) <= max_len:
-                return s
-            return s[:max_len-3] + "..."
-
-        lines = []
-
-        # Recent attempts
-        recent = self.get_recent_records(max_recent, algorithmic_only=True)
-        if recent:
-            lines.append("### Recent Exploration Attempts")
-            for r in recent:
-                icon = {"success": "✓", "marginal": "○", "neutral": "·", "failure": "✗", "error": "⚠"}.get(r.result, "?")
-                delta_str = f"{r.score_delta:+.1%}" if r.score_delta != 0 else "0%"
-                direction_short = truncate(r.direction, max_direction_chars)
-                lines.append(f"- {icon} \"{direction_short}\" ({delta_str})")
-            lines.append("")
-
-        # Successful directions
-        successful = self.get_successful_directions(max_directions)
-        if successful:
-            lines.append("### Successful Directions (worth exploring further)")
-            for d in successful:
-                lines.append(f"- {truncate(d, max_direction_chars)}")
-            lines.append("")
-
-        # Failed directions
-        failed = self.get_failed_directions(max_directions)
-        if failed:
-            lines.append("### Failed Directions (avoid these)")
-            for d in failed:
-                lines.append(f"- {truncate(d, max_direction_chars)}")
-            lines.append("")
-
-        if lines:
-            lines.insert(0, "## Exploration History\n")
-            lines.append("IMPORTANT: Propose something DIFFERENT from the above attempts. Do not repeat failed directions.")
-
-        result = "\n".join(lines)
-
-        # Truncate if over total limit
-        if len(result) > max_total_chars:
-            result = result[:max_total_chars-50] + "\n\n... (history truncated)"
-
-        return result
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "records": [r.to_dict() for r in self.records],
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ExplorationHistory":
-        records = [ExplorationRecord.from_dict(r) for r in data.get("records", [])]
-        return cls(records=records)
+from pantheon.evolution.utils.metrics import feature_coordinates_to_bin
 
 
 @dataclass
@@ -213,7 +38,8 @@ class EvolutionDatabase:
     # Storage
     programs: Dict[str, Program] = field(default_factory=dict)
     islands: List[Set[str]] = field(default_factory=list)
-    island_feature_maps: List[Dict[Tuple[int, ...], str]] = field(default_factory=list)
+    # Dynamic bin storage: island_id -> {program_id -> {dim: value}}
+    island_coordinates: List[Dict[str, Dict[str, float]]] = field(default_factory=list)
     archive: Set[str] = field(default_factory=set)
     best_program_id: Optional[str] = None
 
@@ -221,14 +47,16 @@ class EvolutionDatabase:
     total_added: int = 0
     total_improved: int = 0
 
-    # Exploration history for avoiding repeated attempts
-    exploration_history: ExplorationHistory = field(default_factory=ExplorationHistory)
-
     # Observed feature ranges: {feature_name: (min_value, max_value)}
     feature_ranges: Dict[str, Tuple[float, float]] = field(default_factory=dict)
 
     # Sequence counter for program ordering
     _next_order: int = 0
+
+    # Bin cache: program_id -> bin_tuple (invalidated when ranges change)
+    _bin_cache: Dict[str, Tuple[int, ...]] = field(default_factory=dict, repr=False)
+    _cache_version: int = field(default=0, repr=False)
+    _ranges_version: int = field(default=0, repr=False)
 
     # Thread safety lock for async operations
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
@@ -237,7 +65,7 @@ class EvolutionDatabase:
         """Initialize islands if not already set."""
         if not self.islands:
             self.islands = [set() for _ in range(self.config.num_islands)]
-            self.island_feature_maps = [{} for _ in range(self.config.num_islands)]
+            self.island_coordinates = [{} for _ in range(self.config.num_islands)]
 
     def add(
         self,
@@ -249,6 +77,7 @@ class EvolutionDatabase:
         Add a program to the database.
 
         Places program in MAP-Elites grid and updates archive if elite.
+        Uses dynamic bin calculation based on current feature ranges.
 
         Args:
             program: Program to add
@@ -275,37 +104,36 @@ class EvolutionDatabase:
         # Add to island population
         self.islands[target_island].add(program.id)
 
-        # Update observed feature ranges before computing bin
+        # Calculate feature coordinates (stored for dynamic bin computation)
+        coords = program.feature_coordinates(self.config.feature_dimensions, reference_codes)
+
+        # Store coordinates for dynamic bin calculation
+        self.island_coordinates[target_island][program.id] = coords
+
+        # Update observed feature ranges (may invalidate cache)
         self._update_feature_ranges(program)
 
-        # Get effective ranges for bin calculation
-        effective_ranges = self.get_effective_feature_ranges()
+        # Compute current bin dynamically
+        feature_bin = self._compute_bin(coords)
 
-        # Calculate feature coordinates and bin
-        feature_bin = program.feature_bin(
-            self.config.feature_dimensions,
-            self.config.feature_bins,
-            reference_codes,
-            feature_ranges=effective_ranges,
-        )
+        # Cache the bin for this program
+        self._bin_cache[program.id] = feature_bin
 
-        # MAP-Elites: check if this bin already has a program
-        feature_map = self.island_feature_maps[target_island]
-        existing_id = feature_map.get(feature_bin)
+        # MAP-Elites: find the best existing program in this bin
+        existing_best_id = self._get_best_in_bin(target_island, feature_bin)
 
         added = False
-        if existing_id is None:
-            # Empty bin, add directly
-            feature_map[feature_bin] = program.id
+        new_fitness = program.fitness_score(self.config.feature_dimensions)
+
+        if existing_best_id is None or existing_best_id == program.id:
+            # Empty bin or we are the only one
             added = True
         else:
-            # Compare fitness
-            existing = self.programs.get(existing_id)
+            # Compare fitness with the best in bin
+            existing = self.programs.get(existing_best_id)
             if existing:
-                new_fitness = program.fitness_score(self.config.feature_dimensions)
                 old_fitness = existing.fitness_score(self.config.feature_dimensions)
                 if new_fitness > old_fitness:
-                    feature_map[feature_bin] = program.id
                     added = True
                     self.total_improved += 1
 
@@ -317,10 +145,9 @@ class EvolutionDatabase:
 
         # Log if improvement
         if added and self.config.log_improvements:
-            fitness = program.fitness_score(self.config.feature_dimensions)
             logger.debug(
                 f"Added program {program.id[:8]} to island {target_island}, "
-                f"bin {feature_bin}, fitness {fitness:.4f}"
+                f"bin {feature_bin}, fitness {new_fitness:.4f}"
             )
 
         return added
@@ -366,15 +193,142 @@ class EvolutionDatabase:
 
             self.archive = set(pid for pid, _ in archive_programs[:target_size])
 
-    def _update_feature_ranges(self, program: Program) -> None:
-        """Update observed min/max for each feature dimension."""
+    def _update_feature_ranges(self, program: Program) -> bool:
+        """
+        Update observed min/max for each feature dimension.
+
+        Returns:
+            True if any range changed, False otherwise
+        """
         coords = program.feature_coordinates(self.config.feature_dimensions)
+        changed = False
         for dim, value in coords.items():
             if dim not in self.feature_ranges:
                 self.feature_ranges[dim] = (value, value)
+                changed = True
             else:
                 old_min, old_max = self.feature_ranges[dim]
-                self.feature_ranges[dim] = (min(old_min, value), max(old_max, value))
+                new_min, new_max = min(old_min, value), max(old_max, value)
+                if new_min != old_min or new_max != old_max:
+                    self.feature_ranges[dim] = (new_min, new_max)
+                    changed = True
+        if changed:
+            self._invalidate_bin_cache()
+        return changed
+
+    def _invalidate_bin_cache(self) -> None:
+        """Invalidate the bin cache when feature ranges change."""
+        self._ranges_version += 1
+
+    def _compute_bin(self, coords: Dict[str, float]) -> Tuple[int, ...]:
+        """
+        Compute bin for given coordinates using current feature ranges.
+
+        Args:
+            coords: Feature coordinates {dim: value}
+
+        Returns:
+            Bin tuple
+        """
+        effective_ranges = self.get_effective_feature_ranges()
+        return feature_coordinates_to_bin(
+            coords,
+            self.config.feature_dimensions,
+            self.config.feature_bins,
+            effective_ranges,
+        )
+
+    def _get_cached_bin(self, prog_id: str, coords: Dict[str, float]) -> Tuple[int, ...]:
+        """
+        Get bin for a program, using cache if valid.
+
+        Args:
+            prog_id: Program ID (used as cache key)
+            coords: Feature coordinates
+
+        Returns:
+            Bin tuple
+        """
+        # Check if cache is still valid
+        if self._cache_version != self._ranges_version:
+            self._bin_cache.clear()
+            self._cache_version = self._ranges_version
+
+        if prog_id not in self._bin_cache:
+            self._bin_cache[prog_id] = self._compute_bin(coords)
+        return self._bin_cache[prog_id]
+
+    def _find_programs_in_bin(
+        self,
+        island_id: int,
+        target_bin: Tuple[int, ...],
+    ) -> List[str]:
+        """
+        Find all programs currently in the specified bin.
+
+        Args:
+            island_id: Island to search
+            target_bin: Target bin coordinates
+
+        Returns:
+            List of program IDs in the bin
+        """
+        result = []
+        for prog_id, coords in self.island_coordinates[island_id].items():
+            if self._get_cached_bin(prog_id, coords) == target_bin:
+                result.append(prog_id)
+        return result
+
+    def _get_best_in_bin(
+        self,
+        island_id: int,
+        target_bin: Tuple[int, ...],
+    ) -> Optional[str]:
+        """
+        Get the best program (by fitness) in the specified bin.
+
+        Args:
+            island_id: Island to search
+            target_bin: Target bin coordinates
+
+        Returns:
+            Program ID of the best program, or None if bin is empty
+        """
+        candidates = self._find_programs_in_bin(island_id, target_bin)
+        if not candidates:
+            return None
+        return max(
+            candidates,
+            key=lambda pid: self.programs[pid].fitness_score(self.config.feature_dimensions)
+        )
+
+    def iter_filled_bins(self, island_id: int) -> Iterator[Tuple[Tuple[int, ...], str]]:
+        """
+        Iterate over all filled bins and their best programs.
+
+        This dynamically computes bins using current feature ranges.
+
+        Args:
+            island_id: Island to iterate
+
+        Yields:
+            Tuples of (bin_coords, best_program_id)
+        """
+        bin_to_best: Dict[Tuple[int, ...], Tuple[str, float]] = {}
+
+        for prog_id, coords in self.island_coordinates[island_id].items():
+            bin_coords = self._get_cached_bin(prog_id, coords)
+            fitness = self.programs[prog_id].fitness_score(self.config.feature_dimensions)
+
+            if bin_coords not in bin_to_best:
+                bin_to_best[bin_coords] = (prog_id, fitness)
+            else:
+                existing_id, existing_fitness = bin_to_best[bin_coords]
+                if fitness > existing_fitness:
+                    bin_to_best[bin_coords] = (prog_id, fitness)
+
+        for bin_coords, (prog_id, _) in bin_to_best.items():
+            yield bin_coords, prog_id
 
     def get_feature_range(self, dim: str) -> Tuple[float, float]:
         """
@@ -556,7 +510,7 @@ class EvolutionDatabase:
         num: int,
         exclude: Optional[Set[str]] = None,
     ) -> List[Program]:
-        """Sample diverse inspiration programs."""
+        """Sample diverse inspiration programs using dynamic bins."""
         exclude = exclude or set()
         inspirations = []
 
@@ -570,16 +524,14 @@ class EvolutionDatabase:
 
             island_programs = self.islands[island_id] - exclude
             if island_programs:
-                # Sample from this island's feature map for diversity
-                feature_map = self.island_feature_maps[island_id]
-                if feature_map:
-                    # Sample from different bins
-                    bins = list(feature_map.keys())
-                    random.shuffle(bins)
-                    for bin_key in bins:
+                # Get filled bins dynamically
+                filled_bins = list(self.iter_filled_bins(island_id))
+                if filled_bins:
+                    # Sample from different bins for diversity
+                    random.shuffle(filled_bins)
+                    for bin_coords, pid in filled_bins:
                         if len(inspirations) >= num:
                             break
-                        pid = feature_map[bin_key]
                         if pid not in exclude and pid in self.programs:
                             inspirations.append(self.programs[pid])
                             exclude.add(pid)
@@ -600,6 +552,105 @@ class EvolutionDatabase:
         if self.best_program_id:
             return self.programs.get(self.best_program_id)
         return None
+
+    def get_children(self, parent_id: str) -> List[Program]:
+        """
+        Get all direct children of a program.
+
+        Args:
+            parent_id: ID of the parent program
+
+        Returns:
+            List of child programs
+        """
+        return [p for p in self.programs.values() if p.parent_id == parent_id]
+
+    def get_sibling_summaries(
+        self,
+        parent_id: str,
+        exclude_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get mutation summary info for sibling programs (same parent).
+
+        Used for constructing evolution history in prompts.
+
+        Args:
+            parent_id: ID of the parent program
+            exclude_id: Program ID to exclude from results
+
+        Returns:
+            List of dicts with: summary, category, is_algorithmic, fitness_delta, metrics_delta, order
+        """
+        children = self.get_children(parent_id)
+        result = []
+        for child in children:
+            if exclude_id and child.id == exclude_id:
+                continue
+            if child.mutation_summary:  # Only include programs with summaries
+                result.append({
+                    "summary": child.mutation_summary,
+                    "category": child.mutation_category,
+                    "is_algorithmic": child.is_algorithmic,
+                    "fitness_delta": child.fitness_delta,
+                    "metrics_delta": child.metrics_delta,
+                    "order": child.order,
+                })
+        return result
+
+    def get_ancestor_chain(self, program_id: str) -> List[Program]:
+        """
+        Get the complete ancestor chain from root to the given program.
+
+        Args:
+            program_id: ID of the program
+
+        Returns:
+            List of Programs from root to target (excluding root, excluding target)
+        """
+        chain = []
+        current_id = program_id
+
+        # Traverse up to root
+        while current_id is not None:
+            if current_id not in self.programs:
+                break
+            program = self.programs[current_id]
+            if program.parent_id is not None:  # Don't include root
+                chain.insert(0, program)
+            current_id = program.parent_id
+
+        # Remove the target itself if it was added
+        if chain and chain[-1].id == program_id:
+            chain.pop()
+
+        return chain
+
+    def get_ancestor_summaries(self, program_id: str) -> List[Dict[str, Any]]:
+        """
+        Get mutation summary info for ancestor chain.
+
+        Used for constructing evolution history in prompts.
+
+        Args:
+            program_id: ID of the program
+
+        Returns:
+            List of dicts with: summary, category, is_algorithmic, fitness_delta, metrics_delta, order, generation
+        """
+        chain = self.get_ancestor_chain(program_id)
+        result = []
+        for prog in chain:
+            result.append({
+                "summary": prog.mutation_summary or f"Generation {prog.generation} mutation",
+                "category": prog.mutation_category,
+                "is_algorithmic": prog.is_algorithmic,
+                "fitness_delta": prog.fitness_delta,
+                "metrics_delta": prog.metrics_delta,
+                "order": prog.order,
+                "generation": prog.generation,
+            })
+        return result
 
     def get_top_programs(
         self,
@@ -679,6 +730,12 @@ class EvolutionDatabase:
             for p in self.programs.values()
         ]
 
+        # Count unique filled bins per island (dynamically computed)
+        filled_bin_counts = []
+        for island_id in range(self.config.num_islands):
+            filled_bins = set(bin_coords for bin_coords, _ in self.iter_filled_bins(island_id))
+            filled_bin_counts.append(len(filled_bins))
+
         return {
             "total_programs": len(self.programs),
             "total_added": self.total_added,
@@ -686,7 +743,7 @@ class EvolutionDatabase:
             "archive_size": len(self.archive),
             "num_islands": self.config.num_islands,
             "island_sizes": [len(island) for island in self.islands],
-            "feature_map_sizes": [len(fm) for fm in self.island_feature_maps],
+            "filled_bin_counts": filled_bin_counts,
             "best_fitness": max(fitness_values) if fitness_values else 0.0,
             "avg_fitness": sum(fitness_values) / len(fitness_values) if fitness_values else 0.0,
             "min_fitness": min(fitness_values) if fitness_values else 0.0,
@@ -723,19 +780,9 @@ class EvolutionDatabase:
         for program_id, program in self.programs.items():
             program.save(str(programs_dir / f"{program_id}.json"))
 
-        # Save feature maps
-        feature_maps_data = []
-        for fm in self.island_feature_maps:
-            # Convert tuple keys to strings for JSON
-            fm_data = {str(k): v for k, v in fm.items()}
-            feature_maps_data.append(fm_data)
-
-        with open(save_dir / "feature_maps.json", "w") as f:
-            json.dump(feature_maps_data, f, indent=2)
-
-        # Save exploration history
-        with open(save_dir / "exploration_history.json", "w") as f:
-            json.dump(self.exploration_history.to_dict(), f, indent=2)
+        # Save island coordinates (for dynamic bin calculation)
+        with open(save_dir / "island_coordinates.json", "w") as f:
+            json.dump(self.island_coordinates, f, indent=2)
 
         logger.info(f"Saved database with {len(self.programs)} programs to {path}")
 
@@ -777,34 +824,45 @@ class EvolutionDatabase:
                 program = Program.load(str(program_file))
                 db.programs[program.id] = program
 
-        # Load feature maps
-        feature_maps_path = load_dir / "feature_maps.json"
-        if feature_maps_path.exists():
-            with open(feature_maps_path, "r") as f:
-                feature_maps_data = json.load(f)
-
-            db.island_feature_maps = []
-            for fm_data in feature_maps_data:
-                # Convert string keys back to tuples
-                fm = {}
-                for k, v in fm_data.items():
-                    # Parse tuple from string like "(1, 2, 3)"
-                    key = tuple(int(x) for x in k.strip("()").split(",") if x.strip())
-                    fm[key] = v
-                db.island_feature_maps.append(fm)
+        # Try to load island_coordinates (new format)
+        coordinates_path = load_dir / "island_coordinates.json"
+        if coordinates_path.exists():
+            with open(coordinates_path, "r") as f:
+                db.island_coordinates = json.load(f)
+        else:
+            # Backward compatibility: rebuild coordinates from programs
+            logger.info("Rebuilding island_coordinates from programs (legacy format)")
+            db._rebuild_coordinates_from_programs()
 
         # Ensure correct number of islands
         while len(db.islands) < config.num_islands:
             db.islands.append(set())
-        while len(db.island_feature_maps) < config.num_islands:
-            db.island_feature_maps.append({})
-
-        # Load exploration history
-        exploration_history_path = load_dir / "exploration_history.json"
-        if exploration_history_path.exists():
-            with open(exploration_history_path, "r") as f:
-                history_data = json.load(f)
-            db.exploration_history = ExplorationHistory.from_dict(history_data)
+        while len(db.island_coordinates) < config.num_islands:
+            db.island_coordinates.append({})
 
         logger.info(f"Loaded database with {len(db.programs)} programs from {path}")
         return db
+
+    def _rebuild_coordinates_from_programs(self) -> None:
+        """
+        Rebuild island_coordinates from stored programs.
+
+        Used for backward compatibility with old database format.
+        """
+        # Initialize island_coordinates
+        self.island_coordinates = [{} for _ in range(self.config.num_islands)]
+
+        for prog_id, program in self.programs.items():
+            island_id = program.island_id
+            if island_id is None:
+                island_id = 0
+
+            # Ensure island exists
+            while island_id >= len(self.island_coordinates):
+                self.island_coordinates.append({})
+
+            # Calculate and store coordinates
+            coords = program.feature_coordinates(self.config.feature_dimensions)
+            self.island_coordinates[island_id][prog_id] = coords
+
+        logger.info(f"Rebuilt coordinates for {len(self.programs)} programs")

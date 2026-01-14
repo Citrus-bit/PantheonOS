@@ -282,9 +282,17 @@ class Program:
     generation: int = 0
     island_id: int = 0
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
-    prompt_used: str = ""  # Store the prompt for reproducibility
+    mutator_prompt_used: str = ""  # Store the mutator prompt for reproducibility
+    analysis_prompt_used: str = ""  # Store the analyzer prompt
     analysis_used: str = ""  # Store analyzer's analysis output
     order: Optional[int] = None  # Sequential number assigned when added to database
+
+    # Mutation summary fields
+    mutation_summary: str = ""  # Description of the mutation (10-20 words)
+    mutation_category: str = "other"  # Category: objective_function, optimization_method, etc.
+    is_algorithmic: bool = True  # True for algorithm changes, False for code optimizations
+    fitness_delta: Optional[float] = None  # Change in combined_score vs parent
+    metrics_delta: Dict[str, float] = field(default_factory=dict)  # Per-metric changes
 
     def fitness_score(self, feature_dimensions: List[str] = None) -> float:
         """
@@ -391,9 +399,15 @@ class Program:
             "generation": self.generation,
             "island_id": self.island_id,
             "created_at": self.created_at,
-            "prompt_used": self.prompt_used,
+            "mutator_prompt_used": self.mutator_prompt_used,
+            "analysis_mutator_prompt_used": self.analysis_mutator_prompt_used,
             "analysis_used": self.analysis_used,
             "order": self.order,
+            "mutation_summary": self.mutation_summary,
+            "mutation_category": self.mutation_category,
+            "is_algorithmic": self.is_algorithmic,
+            "fitness_delta": self.fitness_delta,
+            "metrics_delta": self.metrics_delta,
         }
 
     @classmethod
@@ -411,9 +425,15 @@ class Program:
             generation=data.get("generation", 0),
             island_id=data.get("island_id", 0),
             created_at=data.get("created_at", datetime.now().isoformat()),
-            prompt_used=data.get("prompt_used", ""),
+            mutator_prompt_used=data.get("mutator_prompt_used", data.get("prompt_used", "")),
+            analysis_prompt_used=data.get("analysis_prompt_used", ""),
             analysis_used=data.get("analysis_used", ""),
             order=data.get("order"),
+            mutation_summary=data.get("mutation_summary", ""),
+            mutation_category=data.get("mutation_category", "other"),
+            is_algorithmic=data.get("is_algorithmic", True),
+            fitness_delta=data.get("fitness_delta"),
+            metrics_delta=data.get("metrics_delta", {}),
         )
 
     def save(self, path: str) -> None:

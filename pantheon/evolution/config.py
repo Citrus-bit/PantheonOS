@@ -81,13 +81,12 @@ class EvolutionConfig:
     analyzer_exploration_final: float = 0.1  # Minimum exploration probability
     analyzer_exploration_decay_generations: int = 10  # Generations to decay to final probability
 
-    # === Exploration History Parameters ===
-    # Used to avoid repeated exploration attempts
+    # === Evolution History Parameters ===
+    # Used to construct evolution history for prompts
     summarizer_timeout: int = 30  # Timeout for summarizer agent (seconds)
-    exploration_history_max_recent: int = 10  # Max recent records to show in prompt
-    exploration_history_max_directions: int = 5  # Max successful/failed directions to show
-    exploration_history_max_chars: int = 80  # Max characters per direction string
-    exploration_history_max_total: int = 2000  # Max total characters for history in prompt
+    evolution_history_max_siblings: int = 5  # Max sibling attempts to show in prompt
+    evolution_history_max_ancestors: int = 10  # Max ancestor chain steps to show
+    evolution_history_max_chars: int = 2000  # Max total characters for history section
 
     # === Model Configuration ===
     mutator_model: str = "normal"
@@ -188,10 +187,9 @@ class EvolutionConfig:
             "analyzer_exploration_final": self.analyzer_exploration_final,
             "analyzer_exploration_decay_generations": self.analyzer_exploration_decay_generations,
             "summarizer_timeout": self.summarizer_timeout,
-            "exploration_history_max_recent": self.exploration_history_max_recent,
-            "exploration_history_max_directions": self.exploration_history_max_directions,
-            "exploration_history_max_chars": self.exploration_history_max_chars,
-            "exploration_history_max_total": self.exploration_history_max_total,
+            "evolution_history_max_siblings": self.evolution_history_max_siblings,
+            "evolution_history_max_ancestors": self.evolution_history_max_ancestors,
+            "evolution_history_max_chars": self.evolution_history_max_chars,
             "mutator_model": self.mutator_model,
             "feedback_model": self.feedback_model,
             "db_path": self.db_path,
@@ -246,10 +244,9 @@ class EvolutionConfig:
             "analyzer_exploration_final",
             "analyzer_exploration_decay_generations",
             "summarizer_timeout",
-            "exploration_history_max_recent",
-            "exploration_history_max_directions",
-            "exploration_history_max_chars",
-            "exploration_history_max_total",
+            "evolution_history_max_siblings",
+            "evolution_history_max_ancestors",
+            "evolution_history_max_chars",
             "mutator_model",
             "feedback_model",
             "db_path",
