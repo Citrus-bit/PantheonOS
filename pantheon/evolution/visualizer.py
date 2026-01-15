@@ -119,7 +119,25 @@ class EvolutionVisualizer:
 
         def build_node(prog_id: str) -> Dict[str, Any]:
             prog = self.programs[prog_id]
-            score = prog.metrics.get("combined_score", 0.0)
+
+            # Check for evaluation error
+            has_error = bool(prog.artifacts.get("evaluation_error"))
+
+            # Build display_metrics with dynamically computed function_score
+            display_metrics = {k: v for k, v in prog.metrics.items() if k != "fitness_weights"}
+            fitness_weights = prog.metrics.get("fitness_weights")
+            if fitness_weights and isinstance(fitness_weights, dict):
+                display_metrics["function_score"] = self.database.compute_function_score(
+                    prog.metrics, fitness_weights
+                )
+
+            # Use dynamic fitness_score calculation with current metric_ranges
+            score = prog.fitness_score(
+                self.database.config.feature_dimensions,
+                self.database.metric_ranges,
+                self.database.config.function_weight,
+                self.database.config.llm_weight,
+            )
 
             # Use program.order if available, otherwise fall back to -1
             order = prog.order if prog.order is not None else -1
@@ -132,7 +150,8 @@ class EvolutionVisualizer:
                 "generation": prog.generation,
                 "island_id": prog.island_id,
                 "score": score,
-                "metrics": prog.metrics,
+                "metrics": display_metrics,
+                "has_error": has_error,
                 "diff": prog.diff_from_parent or "",
                 "llm_feedback": prog.llm_feedback or prog.artifacts.get("llm_feedback", ""),
                 "created_at": prog.created_at,
@@ -176,16 +195,21 @@ class EvolutionVisualizer:
         Returns:
             List of {iteration, order, program_id, <metric_name>: value, best_<metric_name>: value, ...}
         """
-        # Collect all metric keys from all programs
+        # Collect all metric keys from all programs (excluding fitness_weights)
         all_metric_keys = set()
         for prog in self.programs.values():
-            all_metric_keys.update(prog.metrics.keys())
+            for k in prog.metrics.keys():
+                if k != "fitness_weights":
+                    all_metric_keys.add(k)
 
         # Sort programs by order (use order if available, otherwise fall back to created_at)
         sorted_programs = sorted(
             self.programs.values(),
             key=lambda p: p.order if p.order is not None else float('inf')
         )
+
+        # Get metric_ranges for dynamic function_score calculation
+        metric_ranges = self.database.metric_ranges if hasattr(self.database, 'metric_ranges') else {}
 
         history = []
         best_scores: Dict[str, float] = {}  # Track best value for each metric
@@ -198,9 +222,25 @@ class EvolutionVisualizer:
                 "program_id": prog.id,
             }
 
-            # Add all metrics and their best values
+            # Dynamically compute function_score using current metric_ranges
+            fitness_weights = prog.metrics.get("fitness_weights")
+            if fitness_weights and isinstance(fitness_weights, dict):
+                function_score = self.database.compute_function_score(
+                    prog.metrics, fitness_weights
+                )
+                entry["function_score"] = function_score
+                # Update best function_score
+                if "function_score" not in best_scores or function_score > best_scores["function_score"]:
+                    best_scores["function_score"] = function_score
+                entry["best_function_score"] = best_scores.get("function_score", 0.0)
+
+            # Add all other metrics and their best values
             for key in all_metric_keys:
+                if key == "function_score":
+                    continue  # Already handled above
                 value = prog.metrics.get(key, 0.0)
+                if not isinstance(value, (int, float)):
+                    continue
                 entry[key] = value
 
                 # Update best score for this metric
@@ -235,13 +275,48 @@ class EvolutionVisualizer:
 
         for prog_id, prog in self.programs.items():
             order = prog.order if prog.order is not None else -1
+
+            # Compute fitness_delta dynamically using current metric_ranges
+            prog_fitness = prog.fitness_score(
+                self.database.config.feature_dimensions,
+                self.database.metric_ranges,
+                self.database.config.function_weight,
+                self.database.config.llm_weight,
+            )
+            if prog.parent_id and prog.parent_id in self.programs:
+                parent = self.programs[prog.parent_id]
+                parent_fitness = parent.fitness_score(
+                    self.database.config.feature_dimensions,
+                    self.database.metric_ranges,
+                    self.database.config.function_weight,
+                    self.database.config.llm_weight,
+                )
+                fitness_delta = prog_fitness - parent_fitness
+
+                # Compute metrics_delta dynamically
+                metrics_delta = {}
+                for k, v in prog.metrics.items():
+                    if k in parent.metrics and isinstance(v, (int, float)):
+                        metrics_delta[k] = v - parent.metrics[k]
+            else:
+                fitness_delta = None
+                metrics_delta = {}
+
+            # Build metrics with dynamically computed function_score
+            display_metrics = {k: v for k, v in prog.metrics.items() if k != "fitness_weights"}
+            fitness_weights = prog.metrics.get("fitness_weights")
+            if fitness_weights and isinstance(fitness_weights, dict):
+                display_metrics["function_score"] = self.database.compute_function_score(
+                    prog.metrics, fitness_weights
+                )
+
             programs_data[prog_id] = {
                 "id": prog_id,
                 "order": order,
                 "parent_id": prog.parent_id,
                 "generation": prog.generation,
                 "island_id": prog.island_id,
-                "metrics": prog.metrics,
+                "metrics": display_metrics,
                 "diff": prog.diff_from_parent or "",
                 "llm_feedback": prog.llm_feedback or prog.artifacts.get("llm_feedback", ""),
                 "issues": prog.artifacts.get("issues", []),
@@ -256,8 +331,8 @@ class EvolutionVisualizer:
                 "mutation_summary": prog.mutation_summary,
                 "mutation_category": prog.mutation_category,
                 "is_algorithmic": prog.is_algorithmic,
-                "fitness_delta": prog.fitness_delta,
-                "metrics_delta": prog.metrics_delta,
+                "fitness_delta": fitness_delta,
+                "metrics_delta": metrics_delta,
             }
 
         return programs_data
@@ -286,7 +361,13 @@ class EvolutionVisualizer:
             for coords, prog_id in self.database.iter_filled_bins(island_id):
                 if prog_id in self.programs:
                     prog = self.programs[prog_id]
-                    score = prog.metrics.get("combined_score", 0.0)
+                    # Use dynamic fitness_score calculation
+                    score = prog.fitness_score(
+                        self.database.config.feature_dimensions,
+                        self.database.metric_ranges,
+                        self.database.config.function_weight,
+                        self.database.config.llm_weight,
+                    )
 
                     # Store full coordinates as dict mapping dimension name to bin index
                     coords_dict = {}
@@ -309,8 +390,16 @@ class EvolutionVisualizer:
         """Get summary statistics for the evolution run."""
         stats = self.database.get_statistics()
 
-        # Calculate additional stats
-        scores = [p.metrics.get("combined_score", 0.0) for p in self.programs.values()]
+        # Calculate additional stats using dynamic fitness_score
+        scores = [
+            p.fitness_score(
+                self.database.config.feature_dimensions,
+                self.database.metric_ranges,
+                self.database.config.function_weight,
+                self.database.config.llm_weight,
+            )
+            for p in self.programs.values()
+        ]
 
         best_prog = self.database.get_best_program()
         initial_score = 0.0
@@ -318,7 +407,12 @@ class EvolutionVisualizer:
         # Find initial program (generation 0)
         for prog in self.programs.values():
             if prog.generation == 0:
-                initial_score = prog.metrics.get("combined_score", 0.0)
+                initial_score = prog.fitness_score(
+                    self.database.config.feature_dimensions,
+                    self.database.metric_ranges,
+                    self.database.config.function_weight,
+                    self.database.config.llm_weight,
+                )
                 break
 
         # Get effective feature ranges from database
@@ -1636,7 +1730,6 @@ class EvolutionVisualizer:
         // Color palette for metrics
         const metricColors = {{
             'function_score': '#58a6ff',
-            'combined_score': '#79c0ff',
             'llm_score': '#a371f7',
             'mixing_score': '#f778ba',
             'bio_conservation_score': '#3fb950',
@@ -1654,10 +1747,10 @@ class EvolutionVisualizer:
         }}
 
         // Track which metrics are visible
-        const visibleMetrics = new Set(['combined_score', 'best_combined_score']);
+        const visibleMetrics = new Set(['function_score', 'best_function_score']);
 
         // Currently selected metric for coloring
-        let selectedMetric = 'combined_score';
+        let selectedMetric = 'function_score';
 
         // Store tree root for ancestry path lookup
         let treeRoot = null;
@@ -1758,7 +1851,7 @@ class EvolutionVisualizer:
                 const option = document.createElement('option');
                 option.value = metric;
                 option.textContent = metric.replace(/_/g, ' ');
-                if (metric === 'combined_score') {{
+                if (metric === 'function_score') {{
                     option.selected = true;
                 }}
                 select.appendChild(option);
@@ -2225,8 +2318,8 @@ class EvolutionVisualizer:
                 return;
             }}
 
-            // Track visible metrics for this chart (default to combined_score only)
-            const pathVisibleMetrics = new Set(scoreMetrics.includes('combined_score') ? ['combined_score'] : scoreMetrics.slice(0, 1));
+            // Track visible metrics for this chart (default to function_score only)
+            const pathVisibleMetrics = new Set(scoreMetrics.includes('function_score') ? ['function_score'] : scoreMetrics.slice(0, 1));
 
             // Chart dimensions
             const width = container.clientWidth || 400;
@@ -2521,7 +2614,7 @@ class EvolutionVisualizer:
 
             // Helper to check if node evaluation failed
             function isFailed(d) {{
-                return !d.data.metrics || !d.data.metrics.function_score;
+                return d.data.has_error || !d.data.metrics;
             }}
 
             // Circles - bind click events directly to circles
@@ -2585,7 +2678,7 @@ class EvolutionVisualizer:
         function showTooltip(event, data) {{
             const tooltip = document.getElementById('tooltip');
             // Check if evaluation failed
-            const evalFailed = !data.metrics || !data.metrics.function_score;
+            const evalFailed = data.has_error || !data.metrics;
             // Build metrics HTML
             let metricsHtml = '';
             if (data.metrics && Object.keys(data.metrics).length > 0) {{
@@ -3063,7 +3156,7 @@ class EvolutionVisualizer:
 
             // Helper to check if node evaluation failed
             function isFailed(d) {{
-                return !d.data.metrics || !d.data.metrics.function_score;
+                return d.data.has_error || !d.data.metrics;
             }}
 
             // Nodes
@@ -3456,7 +3549,7 @@ class EvolutionVisualizer:
 
             // Helper to check if node evaluation failed
             function isFailed(d) {{
-                return !d.data.metrics || !d.data.metrics.function_score;
+                return d.data.has_error || !d.data.metrics;
             }}
 
             // Clear all path highlighting
@@ -3606,8 +3699,8 @@ class EvolutionVisualizer:
                 return;
             }}
 
-            // Track visible metrics for this chart (default to combined_score only)
-            const pathVisibleMetrics = new Set(scoreMetrics.includes('combined_score') ? ['combined_score'] : scoreMetrics.slice(0, 1));
+            // Track visible metrics for this chart (default to function_score only)
+            const pathVisibleMetrics = new Set(scoreMetrics.includes('function_score') ? ['function_score'] : scoreMetrics.slice(0, 1));
 
             // Chart dimensions
             const width = container.clientWidth || 400;

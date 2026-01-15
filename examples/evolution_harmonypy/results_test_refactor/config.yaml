@@ -1,7 +1,7 @@
-max_iterations: 100
+max_iterations: 3
 checkpoint_interval: 10
 early_stop_generations: 200
-num_workers: 4
+num_workers: 8
 num_islands: 3
 migration_interval: 20
 migration_rate: 0.1
@@ -52,6 +52,6 @@ db_path: results_test_refactor
 workspace_path: null
 save_prompts: true
 save_all_programs: false
-log_level: DEBUG
+log_level: INFO
 log_iterations: true
 log_improvements: true

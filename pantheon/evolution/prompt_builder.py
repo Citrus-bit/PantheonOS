@@ -441,14 +441,14 @@ class EvolutionPromptBuilder:
 
     def _build_current_program_section(self, program: Program) -> str:
         """Build the current program section."""
-        combined = program.metrics.get("combined_score", 0)
-        parts = [f"## Current Program (Combined Score: {combined:.4f})"]
+        function_score = program.metrics.get("function_score", 0)
+        parts = [f"## Current Program (Function Score: {function_score:.4f})"]
 
         # Show all detailed metrics
         if program.metrics:
             metrics_lines = []
             for key, value in sorted(program.metrics.items()):
-                if key != "combined_score" and isinstance(value, (int, float)):
+                if key not in ("function_score", "fitness_weights") and isinstance(value, (int, float)):
                     metrics_lines.append(f"  - {key}: {value:.4f}")
             if metrics_lines:
                 parts.append("\nDetailed Metrics:")
@@ -471,14 +471,14 @@ class EvolutionPromptBuilder:
         parts.append("Learn from these high-scoring examples:\n")
 
         for i, prog in enumerate(programs[: self.max_top_programs]):
-            combined = prog.metrics.get("combined_score", 0)
-            parts.append(f"### #{i+1} (Combined Score: {combined:.4f})")
+            function_score = prog.metrics.get("function_score", 0)
+            parts.append(f"### #{i+1} (Function Score: {function_score:.4f})")
 
             # Show detailed metrics
             if prog.metrics:
                 metrics_lines = []
                 for key, value in sorted(prog.metrics.items()):
-                    if key != "combined_score" and isinstance(value, (int, float)):
+                    if key not in ("function_score", "fitness_weights") and isinstance(value, (int, float)):
                         metrics_lines.append(f"  - {key}: {value:.4f}")
                 if metrics_lines:
                     parts.append("Metrics:")
@@ -501,14 +501,14 @@ class EvolutionPromptBuilder:
         parts.append("Consider these alternative approaches:\n")
 
         for i, prog in enumerate(programs[: self.max_inspirations]):
-            combined = prog.metrics.get("combined_score", 0)
-            parts.append(f"### Inspiration {i+1} (Combined Score: {combined:.4f})")
+            function_score = prog.metrics.get("function_score", 0)
+            parts.append(f"### Inspiration {i+1} (Function Score: {function_score:.4f})")
 
             # Show detailed metrics
             if prog.metrics:
                 metrics_lines = []
                 for key, value in sorted(prog.metrics.items()):
-                    if key != "combined_score" and isinstance(value, (int, float)):
+                    if key not in ("function_score", "fitness_weights") and isinstance(value, (int, float)):
                         metrics_lines.append(f"  - {key}: {value:.4f}")
                 if metrics_lines:
                     parts.append("Metrics:")

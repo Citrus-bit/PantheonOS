@@ -74,7 +74,7 @@ async def run_evolution(
         # Create default configuration
         config = EvolutionConfig(
             max_iterations=iterations,
-            num_workers=4,  # Parallel workers for evolution
+            num_workers=8,  # Parallel workers for evolution
             num_islands=3,
             num_inspirations=2,
             num_top_programs=3,

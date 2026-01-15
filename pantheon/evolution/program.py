@@ -291,21 +291,38 @@ class Program:
     mutation_summary: str = ""  # Description of the mutation (10-20 words)
     mutation_category: str = "other"  # Category: objective_function, optimization_method, etc.
     is_algorithmic: bool = True  # True for algorithm changes, False for code optimizations
-    fitness_delta: Optional[float] = None  # Change in combined_score vs parent
+    fitness_delta: Optional[float] = None  # Change in fitness score vs parent
     metrics_delta: Dict[str, float] = field(default_factory=dict)  # Per-metric changes
 
-    def fitness_score(self, feature_dimensions: List[str] = None) -> float:
+    def fitness_score(
+        self,
+        feature_dimensions: List[str] = None,
+        metric_ranges: Dict[str, Tuple[float, float]] = None,
+        function_weight: float = 1.0,
+        llm_weight: float = 0.0,
+    ) -> float:
         """
         Calculate fitness score from metrics.
 
+        fitness = function_score × function_weight + llm_score × llm_weight
+
         Args:
             feature_dimensions: Feature dimensions to exclude from fitness
+            metric_ranges: Optional dict of metric name -> (min, max) for normalization
+            function_weight: Weight for function_score (default 1.0)
+            llm_weight: Weight for llm_score (default 0.0)
 
         Returns:
-            Fitness score (higher is better)
+            Fitness score (higher is better, 0.0 to 1.0 if normalized)
         """
         feature_dimensions = feature_dimensions or []
-        return compute_fitness_score(self.metrics, feature_dimensions)
+        return compute_fitness_score(
+            self.metrics,
+            feature_dimensions,
+            metric_ranges,
+            function_weight,
+            llm_weight,
+        )
 
     def feature_coordinates(
         self,
@@ -400,7 +417,7 @@ class Program:
             "island_id": self.island_id,
             "created_at": self.created_at,
             "mutator_prompt_used": self.mutator_prompt_used,
-            "analysis_mutator_prompt_used": self.analysis_mutator_prompt_used,
+            "analysis_prompt_used": self.analysis_prompt_used,
             "analysis_used": self.analysis_used,
             "order": self.order,
             "mutation_summary": self.mutation_summary,

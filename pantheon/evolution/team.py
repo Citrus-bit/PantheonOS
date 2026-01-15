@@ -15,7 +15,7 @@ import random
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from pantheon.utils.log import logger
 
@@ -50,6 +50,9 @@ def compute_deltas(
     parent: Program,
     child: Program,
     feature_dimensions: List[str],
+    metric_ranges: Dict[str, Tuple[float, float]] = None,
+    function_weight: float = 1.0,
+    llm_weight: float = 0.0,
 ) -> tuple:
     """
     Compute fitness and metrics deltas between parent and child.
@@ -58,21 +61,30 @@ def compute_deltas(
         parent: Parent program
         child: Child program
         feature_dimensions: Feature dimensions for fitness calculation
+        metric_ranges: Optional dict of metric name -> (min, max) for normalization
+        function_weight: Weight for function_score (default 1.0)
+        llm_weight: Weight for llm_score (default 0.0)
 
     Returns:
         Tuple of (fitness_delta, metrics_delta)
-        - fitness_delta: Change in combined_score (fitness)
+        - fitness_delta: Change in fitness score
         - metrics_delta: Dict of per-metric changes (missing metrics treated as 0)
     """
-    # fitness_delta uses combined_score (fitness_score)
-    fitness_delta = child.fitness_score(feature_dimensions) - parent.fitness_score(feature_dimensions)
+    # fitness_delta uses the new fitness formula
+    fitness_delta = (
+        child.fitness_score(feature_dimensions, metric_ranges, function_weight, llm_weight)
+        - parent.fitness_score(feature_dimensions, metric_ranges, function_weight, llm_weight)
+    )
 
-    # metrics_delta records per-metric changes
+    # metrics_delta records per-metric changes (only numeric values)
     all_keys = set(parent.metrics.keys()) | set(child.metrics.keys())
-    metrics_delta = {
-        key: child.metrics.get(key, 0.0) - parent.metrics.get(key, 0.0)
-        for key in all_keys
-    }
+    metrics_delta = {}
+    for key in all_keys:
+        child_val = child.metrics.get(key, 0.0)
+        parent_val = parent.metrics.get(key, 0.0)
+        # Only compute delta for numeric values
+        if isinstance(child_val, (int, float)) and isinstance(parent_val, (int, float)):
+            metrics_delta[key] = child_val - parent_val
 
     return fitness_delta, metrics_delta
 
@@ -469,9 +481,20 @@ class EvolutionTeam:
             initial_program.artifacts = eval_result.artifacts
             initial_program.llm_feedback = eval_result.llm_feedback
 
+            # Keep fitness_weights for dynamic function_score calculation
+            fitness_weights = initial_program.metrics.get("fitness_weights")
+            if fitness_weights:
+                # Update metric_ranges (for normalization in fitness_score)
+                self.database._update_metric_ranges(initial_program.metrics)
+
             self.database.add(initial_program)
 
-            initial_score = initial_program.fitness_score(self.config.feature_dimensions)
+            initial_score = initial_program.fitness_score(
+                self.config.feature_dimensions,
+                self.database.metric_ranges,
+                self.config.function_weight,
+                self.config.llm_weight,
+            )
             result.score_history.append(initial_score)
             result.best_score_history.append(initial_score)
             best_score = initial_score
@@ -724,7 +747,12 @@ class EvolutionTeam:
             num_inspirations=self.config.num_inspirations,
         )
 
-        parent_score = parent.fitness_score(self.config.feature_dimensions)
+        parent_score = parent.fitness_score(
+            self.config.feature_dimensions,
+            self.database.metric_ranges,
+            self.config.function_weight,
+            self.config.llm_weight,
+        )
 
         # Get top programs for reference (thread-safe)
         async with self.database._lock:
@@ -907,7 +935,18 @@ class EvolutionTeam:
         child.artifacts = eval_result.artifacts
         child.llm_feedback = eval_result.llm_feedback
 
-        child_score = child.fitness_score(self.config.feature_dimensions)
+        # Extract fitness_weights from evaluator (keep it for dynamic function_score calculation)
+        fitness_weights = child.metrics.get("fitness_weights")
+        if fitness_weights:
+            # Update metric_ranges first (for normalization)
+            self.database._update_metric_ranges(child.metrics)
+
+        child_score = child.fitness_score(
+            self.config.feature_dimensions,
+            self.database.metric_ranges,
+            self.config.function_weight,
+            self.config.llm_weight,
+        )
         improvement = child_score - parent_score
 
         # Log evaluation results
@@ -915,7 +954,7 @@ class EvolutionTeam:
 
         # Log key metrics if available
         metric_parts = []
-        for key in ['mixing_score', 'speed_score', 'combined_score']:
+        for key in ['mixing_score', 'speed_score', 'function_score']:
             if key in child.metrics:
                 metric_parts.append(f"{key.replace('_score', '')}={child.metrics[key]:.3f}")
         if metric_parts:
@@ -941,7 +980,12 @@ class EvolutionTeam:
 
         # Compute fitness and metrics deltas
         child.fitness_delta, child.metrics_delta = compute_deltas(
-            parent, child, self.config.feature_dimensions
+            parent,
+            child,
+            self.config.feature_dimensions,
+            self.database.metric_ranges,
+            self.config.function_weight,
+            self.config.llm_weight,
         )
 
         # Add to database (thread-safe)

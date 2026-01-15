@@ -50,6 +50,9 @@ class EvolutionDatabase:
     # Observed feature ranges: {feature_name: (min_value, max_value)}
     feature_ranges: Dict[str, Tuple[float, float]] = field(default_factory=dict)
 
+    # Observed metric ranges for normalization: {metric_name: (min_value, max_value)}
+    metric_ranges: Dict[str, Tuple[float, float]] = field(default_factory=dict)
+
     # Sequence counter for program ordering
     _next_order: int = 0
 
@@ -113,6 +116,9 @@ class EvolutionDatabase:
         # Update observed feature ranges (may invalidate cache)
         self._update_feature_ranges(program)
 
+        # Update observed metric ranges for normalization
+        self._update_metric_ranges(program.metrics)
+
         # Compute current bin dynamically
         feature_bin = self._compute_bin(coords)
 
@@ -123,7 +129,12 @@ class EvolutionDatabase:
         existing_best_id = self._get_best_in_bin(target_island, feature_bin)
 
         added = False
-        new_fitness = program.fitness_score(self.config.feature_dimensions)
+        new_fitness = program.fitness_score(
+            self.config.feature_dimensions,
+            self.metric_ranges,
+            self.config.function_weight,
+            self.config.llm_weight,
+        )
 
         if existing_best_id is None or existing_best_id == program.id:
             # Empty bin or we are the only one
@@ -132,7 +143,12 @@ class EvolutionDatabase:
             # Compare fitness with the best in bin
             existing = self.programs.get(existing_best_id)
             if existing:
-                old_fitness = existing.fitness_score(self.config.feature_dimensions)
+                old_fitness = existing.fitness_score(
+                    self.config.feature_dimensions,
+                    self.metric_ranges,
+                    self.config.function_weight,
+                    self.config.llm_weight,
+                )
                 if new_fitness > old_fitness:
                     added = True
                     self.total_improved += 1
@@ -163,8 +179,18 @@ class EvolutionDatabase:
             self.best_program_id = program.id
             return
 
-        new_fitness = program.fitness_score(self.config.feature_dimensions)
-        best_fitness = best.fitness_score(self.config.feature_dimensions)
+        new_fitness = program.fitness_score(
+            self.config.feature_dimensions,
+            self.metric_ranges,
+            self.config.function_weight,
+            self.config.llm_weight,
+        )
+        best_fitness = best.fitness_score(
+            self.config.feature_dimensions,
+            self.metric_ranges,
+            self.config.function_weight,
+            self.config.llm_weight,
+        )
 
         if new_fitness > best_fitness:
             self.best_program_id = program.id
@@ -185,7 +211,12 @@ class EvolutionDatabase:
         if len(self.archive) > target_size:
             # Remove lowest fitness programs
             archive_programs = [
-                (pid, self.programs[pid].fitness_score(self.config.feature_dimensions))
+                (pid, self.programs[pid].fitness_score(
+                    self.config.feature_dimensions,
+                    self.metric_ranges,
+                    self.config.function_weight,
+                    self.config.llm_weight,
+                ))
                 for pid in self.archive
                 if pid in self.programs
             ]
@@ -215,6 +246,113 @@ class EvolutionDatabase:
         if changed:
             self._invalidate_bin_cache()
         return changed
+
+    def _update_metric_ranges(self, metrics: Dict[str, float]) -> bool:
+        """
+        Update observed min/max for each metric.
+
+        Used for normalizing metrics when computing fitness scores.
+
+        Args:
+            metrics: Dict of metric name -> value
+
+        Returns:
+            True if any range changed, False otherwise
+        """
+        changed = False
+        for metric_name, value in metrics.items():
+            # Skip non-numeric values and error field
+            if not isinstance(value, (int, float)) or metric_name == 'error':
+                continue
+            if metric_name not in self.metric_ranges:
+                self.metric_ranges[metric_name] = (float(value), float(value))
+                changed = True
+            else:
+                old_min, old_max = self.metric_ranges[metric_name]
+                new_min = min(old_min, float(value))
+                new_max = max(old_max, float(value))
+                if new_min != old_min or new_max != old_max:
+                    self.metric_ranges[metric_name] = (new_min, new_max)
+                    changed = True
+        return changed
+
+    def get_normalized_metrics(self, metrics: Dict[str, float]) -> Dict[str, float]:
+        """
+        Normalize metrics to [0, 1] using observed ranges.
+
+        Args:
+            metrics: Dict of metric name -> value
+
+        Returns:
+            Dict of metric name -> normalized value (0-1)
+        """
+        normalized = {}
+        for name, value in metrics.items():
+            if not isinstance(value, (int, float)):
+                continue
+            if name in self.metric_ranges:
+                min_val, max_val = self.metric_ranges[name]
+                range_size = max_val - min_val
+                if range_size > 1e-8:
+                    normalized[name] = (float(value) - min_val) / range_size
+                else:
+                    normalized[name] = 0.5  # All values are the same
+            else:
+                normalized[name] = float(value)  # No range info, keep original
+        return normalized
+
+    def compute_function_score(
+        self,
+        metrics: Dict[str, Any],
+        fitness_weights: Optional[Dict[str, float]] = None,
+    ) -> float:
+        """
+        Compute function_score from normalized metrics with weights.
+
+        Only metrics in fitness_weights participate in the calculation.
+        Metrics are normalized using observed min/max ranges before weighting.
+
+        Args:
+            metrics: Raw metrics from evaluator
+            fitness_weights: Weight for each metric (from evaluator)
+
+        Returns:
+            Normalized weighted fitness score (0.0 to 1.0)
+        """
+        # Weights must be provided by evaluator
+        if not fitness_weights:
+            return 0.0
+
+        # Normalize and compute weighted sum
+        total_weight = 0.0
+        weighted_sum = 0.0
+
+        for metric_name, weight in fitness_weights.items():
+            if metric_name not in metrics:
+                continue
+            value = metrics[metric_name]
+            if not isinstance(value, (int, float)):
+                continue
+
+            # Normalize using observed range
+            if metric_name in self.metric_ranges:
+                min_val, max_val = self.metric_ranges[metric_name]
+                range_size = max_val - min_val
+                if range_size > 1e-8:
+                    normalized = (float(value) - min_val) / range_size
+                else:
+                    normalized = 0.5  # All values are the same
+            else:
+                # First sample, clamp to [0, 1]
+                normalized = max(0.0, min(1.0, float(value)))
+
+            weighted_sum += weight * normalized
+            total_weight += weight
+
+        if total_weight < 1e-8:
+            return 0.0
+
+        return weighted_sum / total_weight
 
     def _invalidate_bin_cache(self) -> None:
         """Invalidate the bin cache when feature ranges change."""
@@ -299,7 +437,12 @@ class EvolutionDatabase:
             return None
         return max(
             candidates,
-            key=lambda pid: self.programs[pid].fitness_score(self.config.feature_dimensions)
+            key=lambda pid: self.programs[pid].fitness_score(
+                self.config.feature_dimensions,
+                self.metric_ranges,
+                self.config.function_weight,
+                self.config.llm_weight,
+            )
         )
 
     def iter_filled_bins(self, island_id: int) -> Iterator[Tuple[Tuple[int, ...], str]]:
@@ -318,7 +461,12 @@ class EvolutionDatabase:
 
         for prog_id, coords in self.island_coordinates[island_id].items():
             bin_coords = self._get_cached_bin(prog_id, coords)
-            fitness = self.programs[prog_id].fitness_score(self.config.feature_dimensions)
+            fitness = self.programs[prog_id].fitness_score(
+                self.config.feature_dimensions,
+                self.metric_ranges,
+                self.config.function_weight,
+                self.config.llm_weight,
+            )
 
             if bin_coords not in bin_to_best:
                 bin_to_best[bin_coords] = (prog_id, fitness)
@@ -462,7 +610,12 @@ class EvolutionDatabase:
         for pid in self.archive:
             program = self.programs.get(pid)
             if program:
-                fitness = program.fitness_score(self.config.feature_dimensions)
+                fitness = program.fitness_score(
+                    self.config.feature_dimensions,
+                    self.metric_ranges,
+                    self.config.function_weight,
+                    self.config.llm_weight,
+                )
                 # Use fitness as weight (higher fitness = higher probability)
                 # Add small epsilon to avoid zero weights
                 weights.append(max(fitness, 0.001))
@@ -491,7 +644,12 @@ class EvolutionDatabase:
         for pid in candidates:
             program = self.programs.get(pid)
             if program:
-                fitness = program.fitness_score(self.config.feature_dimensions)
+                fitness = program.fitness_score(
+                    self.config.feature_dimensions,
+                    self.metric_ranges,
+                    self.config.function_weight,
+                    self.config.llm_weight,
+                )
                 # Add small epsilon to avoid zero weights
                 weights.append(max(fitness, 0.001))
                 valid_candidates.append(pid)
@@ -574,6 +732,7 @@ class EvolutionDatabase:
         Get mutation summary info for sibling programs (same parent).
 
         Used for constructing evolution history in prompts.
+        fitness_delta is computed dynamically using current metric_ranges.
 
         Args:
             parent_id: ID of the parent program
@@ -583,17 +742,41 @@ class EvolutionDatabase:
             List of dicts with: summary, category, is_algorithmic, fitness_delta, metrics_delta, order
         """
         children = self.get_children(parent_id)
+        parent = self.programs.get(parent_id)
+        parent_fitness = parent.fitness_score(
+            self.config.feature_dimensions,
+            self.metric_ranges,
+            self.config.function_weight,
+            self.config.llm_weight,
+        ) if parent else 0.0
+
         result = []
         for child in children:
             if exclude_id and child.id == exclude_id:
                 continue
             if child.mutation_summary:  # Only include programs with summaries
+                # Compute fitness_delta dynamically
+                child_fitness = child.fitness_score(
+                    self.config.feature_dimensions,
+                    self.metric_ranges,
+                    self.config.function_weight,
+                    self.config.llm_weight,
+                )
+                fitness_delta = child_fitness - parent_fitness
+
+                # Compute metrics_delta dynamically
+                metrics_delta = {}
+                parent_metrics = parent.metrics if parent else {}
+                for k, v in child.metrics.items():
+                    if k in parent_metrics and isinstance(v, (int, float)):
+                        metrics_delta[k] = v - parent_metrics[k]
+
                 result.append({
                     "summary": child.mutation_summary,
                     "category": child.mutation_category,
                     "is_algorithmic": child.is_algorithmic,
-                    "fitness_delta": child.fitness_delta,
-                    "metrics_delta": child.metrics_delta,
+                    "fitness_delta": fitness_delta,
+                    "metrics_delta": metrics_delta,
                     "order": child.order,
                 })
         return result
@@ -631,6 +814,7 @@ class EvolutionDatabase:
         Get mutation summary info for ancestor chain.
 
         Used for constructing evolution history in prompts.
+        fitness_delta is computed dynamically using current metric_ranges.
 
         Args:
             program_id: ID of the program
@@ -641,12 +825,39 @@ class EvolutionDatabase:
         chain = self.get_ancestor_chain(program_id)
         result = []
         for prog in chain:
+            # Compute fitness_delta dynamically
+            prog_fitness = prog.fitness_score(
+                self.config.feature_dimensions,
+                self.metric_ranges,
+                self.config.function_weight,
+                self.config.llm_weight,
+            )
+            if prog.parent_id and prog.parent_id in self.programs:
+                parent = self.programs[prog.parent_id]
+                parent_fitness = parent.fitness_score(
+                    self.config.feature_dimensions,
+                    self.metric_ranges,
+                    self.config.function_weight,
+                    self.config.llm_weight,
+                )
+                fitness_delta = prog_fitness - parent_fitness
+
+                # Compute metrics_delta dynamically
+                metrics_delta = {}
+                for k, v in prog.metrics.items():
+                    if k in parent.metrics and isinstance(v, (int, float)):
+                        metrics_delta[k] = v - parent.metrics[k]
+            else:
+                # Root program, no delta
+                fitness_delta = None
+                metrics_delta = {}
+
             result.append({
                 "summary": prog.mutation_summary or f"Generation {prog.generation} mutation",
                 "category": prog.mutation_category,
                 "is_algorithmic": prog.is_algorithmic,
-                "fitness_delta": prog.fitness_delta,
-                "metrics_delta": prog.metrics_delta,
+                "fitness_delta": fitness_delta,
+                "metrics_delta": metrics_delta,
                 "order": prog.order,
                 "generation": prog.generation,
             })
@@ -655,7 +866,7 @@ class EvolutionDatabase:
     def get_top_programs(
         self,
         n: int = 5,
-        metric: str = "combined_score",
+        metric: str = "fitness",
         island_id: Optional[int] = None,
     ) -> List[Program]:
         """
@@ -663,7 +874,7 @@ class EvolutionDatabase:
 
         Args:
             n: Number of programs to return
-            metric: Metric name to sort by
+            metric: Metric name to sort by (default: "fitness" for dynamic fitness score)
             island_id: Specific island (all if None)
 
         Returns:
@@ -681,7 +892,12 @@ class EvolutionDatabase:
         # Sort by metric
         def get_metric(p: Program) -> float:
             if metric == "fitness":
-                return p.fitness_score(self.config.feature_dimensions)
+                return p.fitness_score(
+                    self.config.feature_dimensions,
+                    self.metric_ranges,
+                    self.config.function_weight,
+                    self.config.llm_weight,
+                )
             return p.metrics.get(metric, 0.0)
 
         candidates.sort(key=get_metric, reverse=True)
@@ -726,7 +942,12 @@ class EvolutionDatabase:
     def get_statistics(self) -> Dict[str, Any]:
         """Get database statistics."""
         fitness_values = [
-            p.fitness_score(self.config.feature_dimensions)
+            p.fitness_score(
+                self.config.feature_dimensions,
+                self.metric_ranges,
+                self.config.function_weight,
+                self.config.llm_weight,
+            )
             for p in self.programs.values()
         ]
 
@@ -768,6 +989,7 @@ class EvolutionDatabase:
             "total_added": self.total_added,
             "total_improved": self.total_improved,
             "feature_ranges": {k: list(v) for k, v in self.feature_ranges.items()},
+            "metric_ranges": {k: list(v) for k, v in self.metric_ranges.items()},
             "next_order": self._next_order,
         }
         with open(save_dir / "metadata.json", "w") as f:
@@ -814,6 +1036,9 @@ class EvolutionDatabase:
         # Restore feature ranges
         feature_ranges_data = metadata.get("feature_ranges", {})
         db.feature_ranges = {k: tuple(v) for k, v in feature_ranges_data.items()}
+        # Restore metric ranges
+        metric_ranges_data = metadata.get("metric_ranges", {})
+        db.metric_ranges = {k: tuple(v) for k, v in metric_ranges_data.items()}
         # Restore sequence counter
         db._next_order = metadata.get("next_order", 0)
 
@@ -839,6 +1064,11 @@ class EvolutionDatabase:
             db.islands.append(set())
         while len(db.island_coordinates) < config.num_islands:
             db.island_coordinates.append({})
+
+        # Backward compatibility: rebuild metric_ranges if empty
+        if not db.metric_ranges and db.programs:
+            logger.info("Rebuilding metric_ranges from programs (legacy format)")
+            db._rebuild_metric_ranges_from_programs()
 
         logger.info(f"Loaded database with {len(db.programs)} programs from {path}")
         return db
@@ -866,3 +1096,14 @@ class EvolutionDatabase:
             self.island_coordinates[island_id][prog_id] = coords
 
         logger.info(f"Rebuilt coordinates for {len(self.programs)} programs")
+
+    def _rebuild_metric_ranges_from_programs(self) -> None:
+        """
+        Rebuild metric_ranges from stored programs.
+
+        Used for backward compatibility with old database format.
+        """
+        self.metric_ranges = {}
+        for program in self.programs.values():
+            self._update_metric_ranges(program.metrics)
+        logger.info(f"Rebuilt metric_ranges from {len(self.programs)} programs")

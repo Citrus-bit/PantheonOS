@@ -1,0 +1,38 @@
+[
+  {
+    "53e28f0c": {
+      "mixing_score": 0.5,
+      "speed_score": 0.5,
+      "bio_conservation_score": 0.5
+    },
+    "bba99f0b": {
+      "mixing_score": 0.5863109375000002,
+      "speed_score": 0.5860435065943979,
+      "bio_conservation_score": 0.6609369814395905
+    }
+  },
+  {
+    "73e43c0e": {
+      "mixing_score": 0.709365,
+      "speed_score": 0.3293100590650235,
+      "bio_conservation_score": 0.6777349263429642
+    },
+    "b1c21492": {
+      "mixing_score": 0.6260688750000001,
+      "speed_score": 0.467989767008421,
+      "bio_conservation_score": 0.6785417199134827
+    },
+    "3578ed46": {
+      "mixing_score": 0.6302835625000001,
+      "speed_score": 0.60709157198254,
+      "bio_conservation_score": 0.6777922809123993
+    }
+  },
+  {
+    "5a72dba6": {
+      "mixing_score": 0.5910263125000002,
+      "speed_score": 0.7026192699386853,
+      "bio_conservation_score": 0.6728800535202026
+    }
+  }
+]
