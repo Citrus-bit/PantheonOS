@@ -388,6 +388,10 @@ class EvolutionPromptBuilder:
         inspirations: Optional[List[Program]] = None,
         artifacts: Optional[Dict[str, Any]] = None,
         iteration: Optional[int] = None,
+        metric_ranges: Optional[Dict[str, Tuple[float, float]]] = None,
+        feature_dimensions: Optional[List[str]] = None,
+        function_weight: float = 1.0,
+        llm_weight: float = 0.0,
     ) -> str:
         """
         Build a mutation prompt.
@@ -399,6 +403,10 @@ class EvolutionPromptBuilder:
             inspirations: Diverse inspiration programs
             artifacts: Evaluation artifacts/feedback
             iteration: Current iteration number
+            metric_ranges: Metric ranges for fitness score normalization
+            feature_dimensions: Feature dimensions to exclude from fitness calculation
+            function_weight: Weight for function_score in fitness calculation
+            llm_weight: Weight for llm_score in fitness calculation
 
         Returns:
             Formatted prompt string
@@ -409,15 +417,21 @@ class EvolutionPromptBuilder:
         parts.append(self._build_objective_section(objective, iteration))
 
         # Current program
-        parts.append(self._build_current_program_section(parent))
+        parts.append(self._build_current_program_section(
+            parent, metric_ranges, feature_dimensions, function_weight, llm_weight
+        ))
 
         # Top performers
         if top_programs:
-            parts.append(self._build_top_programs_section(top_programs))
+            parts.append(self._build_top_programs_section(
+                top_programs, metric_ranges, feature_dimensions, function_weight, llm_weight
+            ))
 
         # Inspirations
         if inspirations:
-            parts.append(self._build_inspirations_section(inspirations))
+            parts.append(self._build_inspirations_section(
+                inspirations, metric_ranges, feature_dimensions, function_weight, llm_weight
+            ))
 
         # Artifacts/feedback
         if artifacts and self.include_artifacts:
@@ -439,10 +453,23 @@ class EvolutionPromptBuilder:
             header += f" (Iteration {iteration})"
         return f"{header}\n\n{objective}"
 
-    def _build_current_program_section(self, program: Program) -> str:
+    def _build_current_program_section(
+        self,
+        program: Program,
+        metric_ranges: Optional[Dict[str, Tuple[float, float]]] = None,
+        feature_dimensions: Optional[List[str]] = None,
+        function_weight: float = 1.0,
+        llm_weight: float = 0.0,
+    ) -> str:
         """Build the current program section."""
-        function_score = program.metrics.get("function_score", 0)
-        parts = [f"## Current Program (Function Score: {function_score:.4f})"]
+        # Dynamically compute fitness_score
+        fitness_score = program.fitness_score(
+            feature_dimensions=feature_dimensions or [],
+            metric_ranges=metric_ranges,
+            function_weight=function_weight,
+            llm_weight=llm_weight,
+        )
+        parts = [f"## Current Program (Fitness Score: {fitness_score:.4f})"]
 
         # Show all detailed metrics
         if program.metrics:
@@ -465,14 +492,26 @@ class EvolutionPromptBuilder:
 
         return "\n".join(parts)
 
-    def _build_top_programs_section(self, programs: List[Program]) -> str:
+    def _build_top_programs_section(
+        self,
+        programs: List[Program],
+        metric_ranges: Optional[Dict[str, Tuple[float, float]]] = None,
+        feature_dimensions: Optional[List[str]] = None,
+        function_weight: float = 1.0,
+        llm_weight: float = 0.0,
+    ) -> str:
         """Build the top performers section."""
         parts = ["## Top Performing Programs"]
         parts.append("Learn from these high-scoring examples:\n")
 
         for i, prog in enumerate(programs[: self.max_top_programs]):
-            function_score = prog.metrics.get("function_score", 0)
-            parts.append(f"### #{i+1} (Function Score: {function_score:.4f})")
+            fitness_score = prog.fitness_score(
+                feature_dimensions=feature_dimensions or [],
+                metric_ranges=metric_ranges,
+                function_weight=function_weight,
+                llm_weight=llm_weight,
+            )
+            parts.append(f"### #{i+1} (Fitness Score: {fitness_score:.4f})")
 
             # Show detailed metrics
             if prog.metrics:
@@ -495,14 +534,26 @@ class EvolutionPromptBuilder:
 
         return "\n\n".join(parts)
 
-    def _build_inspirations_section(self, programs: List[Program]) -> str:
+    def _build_inspirations_section(
+        self,
+        programs: List[Program],
+        metric_ranges: Optional[Dict[str, Tuple[float, float]]] = None,
+        feature_dimensions: Optional[List[str]] = None,
+        function_weight: float = 1.0,
+        llm_weight: float = 0.0,
+    ) -> str:
         """Build the inspirations section."""
         parts = ["## Diverse Inspirations"]
         parts.append("Consider these alternative approaches:\n")
 
         for i, prog in enumerate(programs[: self.max_inspirations]):
-            function_score = prog.metrics.get("function_score", 0)
-            parts.append(f"### Inspiration {i+1} (Function Score: {function_score:.4f})")
+            fitness_score = prog.fitness_score(
+                feature_dimensions=feature_dimensions or [],
+                metric_ranges=metric_ranges,
+                function_weight=function_weight,
+                llm_weight=llm_weight,
+            )
+            parts.append(f"### Inspiration {i+1} (Fitness Score: {fitness_score:.4f})")
 
             # Show detailed metrics
             if prog.metrics:
@@ -654,6 +705,10 @@ Provide your changes now:"""
         artifacts: Optional[Dict[str, Any]] = None,
         iteration: Optional[int] = None,
         exploration_history: Optional[str] = None,
+        metric_ranges: Optional[Dict[str, Tuple[float, float]]] = None,
+        feature_dimensions: Optional[List[str]] = None,
+        function_weight: float = 1.0,
+        llm_weight: float = 0.0,
     ) -> str:
         """
         Build prompt for analyzer agent with full context.
@@ -669,6 +724,10 @@ Provide your changes now:"""
             artifacts: Evaluation artifacts/feedback
             iteration: Current iteration number
             exploration_history: Pre-formatted exploration history text (for exploration mode)
+            metric_ranges: Metric ranges for fitness score normalization
+            feature_dimensions: Feature dimensions to exclude from fitness calculation
+            function_weight: Weight for function_score in fitness calculation
+            llm_weight: Weight for llm_score in fitness calculation
 
         Returns:
             Formatted prompt string for analyzer
@@ -683,15 +742,21 @@ Provide your changes now:"""
             parts.append(exploration_history)
 
         # Current program with full details
-        parts.append(self._build_current_program_section(parent))
+        parts.append(self._build_current_program_section(
+            parent, metric_ranges, feature_dimensions, function_weight, llm_weight
+        ))
 
         # Top performers for reference
         if top_programs:
-            parts.append(self._build_top_programs_section(top_programs))
+            parts.append(self._build_top_programs_section(
+                top_programs, metric_ranges, feature_dimensions, function_weight, llm_weight
+            ))
 
         # Inspirations for alternative approaches
         if inspirations:
-            parts.append(self._build_inspirations_section(inspirations))
+            parts.append(self._build_inspirations_section(
+                inspirations, metric_ranges, feature_dimensions, function_weight, llm_weight
+            ))
 
         # Evaluation feedback
         if artifacts and self.include_artifacts:
