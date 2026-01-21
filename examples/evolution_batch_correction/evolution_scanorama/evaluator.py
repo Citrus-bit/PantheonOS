@@ -285,9 +285,14 @@ def evaluate(workspace_path: str) -> Dict[str, Any]:
     workspace = Path(workspace_path)
 
     # Load the scanorama module from workspace
+    # CodebaseSnapshot may place files directly in workspace root or in scanorama/ subdirectory
     scanorama_path = workspace / "scanorama"
     if not scanorama_path.exists():
-        return funcs["error_result"]("scanorama package not found")
+        # Fallback: files might be directly in workspace root
+        if (workspace / "scanorama.py").exists():
+            scanorama_path = workspace
+        else:
+            return funcs["error_result"]("scanorama package not found")
 
     try:
         scanorama_module = _load_scanorama_module(scanorama_path)
@@ -389,9 +394,14 @@ def _evaluate_on_split(workspace_path: str, split: str) -> Dict[str, Any]:
     workspace = Path(workspace_path)
 
     # Load the scanorama module from workspace
+    # CodebaseSnapshot may place files directly in workspace root or in scanorama/ subdirectory
     scanorama_path = workspace / "scanorama"
     if not scanorama_path.exists():
-        return funcs["error_result"]("scanorama package not found")
+        # Fallback: files might be directly in workspace root
+        if (workspace / "scanorama.py").exists():
+            scanorama_path = workspace
+        else:
+            return funcs["error_result"]("scanorama package not found")
 
     try:
         scanorama_module = _load_scanorama_module(scanorama_path)

@@ -501,6 +501,7 @@ class EvolutionTeam:
             result.score_history.append(initial_score)
             result.best_score_history.append(initial_score)
             best_score = initial_score
+            best_program = initial_program  # Track best program for consistent fitness comparison
 
             logger.info(f"Initial program score: {initial_score:.4f}")
 
@@ -544,8 +545,17 @@ class EvolutionTeam:
                     result.score_history.append(iter_result.child_score)
 
                     is_new_best = False
-                    if iter_result.child_score > best_score:
+                    # Recompute best_program's fitness using current metric_ranges
+                    # This ensures consistent comparison as ranges expand during evolution
+                    current_best_score = best_program.fitness_score(
+                        self.config.feature_dimensions,
+                        self.database.metric_ranges,
+                        self.config.function_weight,
+                        self.config.llm_weight,
+                    )
+                    if iter_result.child_score > current_best_score:
                         best_score = iter_result.child_score
+                        best_program = self.database.programs[iter_result.child_id]
                         generations_without_improvement = 0
                         is_new_best = True
                     else:
@@ -556,10 +566,17 @@ class EvolutionTeam:
                     # Log every iteration with clear progress
                     progress_pct = completed_iterations / target_iterations * 100
                     status = "★ NEW BEST" if is_new_best else ("✓ accepted" if iter_result.accepted else "✗ rejected")
+                    # Compute initial_program's score with current metric_ranges for consistent comparison
+                    current_initial_score = initial_program.fitness_score(
+                        self.config.feature_dimensions,
+                        self.database.metric_ranges,
+                        self.config.function_weight,
+                        self.config.llm_weight,
+                    )
                     logger.info(
                         f"[{completed_iterations}/{target_iterations}] ({progress_pct:.0f}%) "
-                        f"iter={iter_result.iteration} score={iter_result.child_score:.4f} "
-                        f"best={best_score:.4f} {status}"
+                        f"iter={iter_result.iteration} initial={current_initial_score:.4f} "
+                        f"score={iter_result.child_score:.4f} best={best_score:.4f} {status}"
                     )
 
                     # Periodic summary (every 10 iterations)
@@ -567,8 +584,8 @@ class EvolutionTeam:
                         stats = self.database.get_statistics()
                         logger.info(
                             f"=== Summary: {completed_iterations}/{target_iterations} complete, "
-                            f"best={best_score:.4f}, avg={stats['avg_fitness']:.4f}, "
-                            f"programs={stats['total_programs']} ==="
+                            f"initial={current_initial_score:.4f}, best={best_score:.4f}, "
+                            f"avg={stats['avg_fitness']:.4f}, programs={stats['total_programs']} ==="
                         )
 
                     # Trigger progress callback on every iteration (independent of checkpoint)
@@ -618,8 +635,17 @@ class EvolutionTeam:
                     # Track scores
                     result.score_history.append(iter_result.child_score)
 
-                    if iter_result.child_score > best_score:
+                    # Recompute best_program's fitness using current metric_ranges
+                    # This ensures consistent comparison as ranges expand during evolution
+                    current_best_score = best_program.fitness_score(
+                        self.config.feature_dimensions,
+                        self.database.metric_ranges,
+                        self.config.function_weight,
+                        self.config.llm_weight,
+                    )
+                    if iter_result.child_score > current_best_score:
                         best_score = iter_result.child_score
+                        best_program = self.database.programs[iter_result.child_id]
                         generations_without_improvement = 0
                         logger.info(
                             f"  ★ New best score: {best_score:.4f} "
@@ -633,9 +659,17 @@ class EvolutionTeam:
                     # Periodic logging
                     if self.config.log_iterations and iteration % 10 == 0 and iteration > 0:
                         stats = self.database.get_statistics()
+                        # Compute initial_program's score with current metric_ranges for consistent comparison
+                        current_initial_score = initial_program.fitness_score(
+                            self.config.feature_dimensions,
+                            self.database.metric_ranges,
+                            self.config.function_weight,
+                            self.config.llm_weight,
+                        )
                         logger.info(
-                            f"--- Progress: {iteration}/{max_iterations}, best={best_score:.4f}, "
-                            f"avg={stats['avg_fitness']:.4f}, programs={stats['total_programs']} ---"
+                            f"--- Progress: {iteration}/{max_iterations}, initial={current_initial_score:.4f}, "
+                            f"best={best_score:.4f}, avg={stats['avg_fitness']:.4f}, "
+                            f"programs={stats['total_programs']} ---"
                         )
 
                     # Trigger progress callback on every iteration (independent of checkpoint)

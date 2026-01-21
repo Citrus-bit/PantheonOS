@@ -85,7 +85,7 @@ async def run_evolution(
         # Create configuration optimized for multi-file evolution
         config = EvolutionConfig(
             max_iterations=iterations,
-            num_workers=2,  # Fewer workers for multi-file (more context per mutation)
+            num_workers=8,  # More workers for faster evolution
             num_islands=2,  # Fewer islands
             num_inspirations=1,  # Fewer inspirations to save context
             num_top_programs=2,  # Fewer top programs
