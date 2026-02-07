@@ -114,13 +114,13 @@ Do NOT default to any single model. Each model has a distinct strength — selec
 | Ensembl IDs, network biology, CPU-only    | geneformer    | scgpt            |
 | cross-species, zebrafish/frog/pig/macaque | uce           | scgpt/geneformer |
 | prior knowledge, gene regulatory networks | genecompass   | scgpt            |
-| perturbation, drug response               | scfoundation  | scgpt            |
+| perturbation prediction (gene KO/KD)      | tabula        | scfoundation/scgpt |
 | general RNA embed/integrate, no special needs | scgpt     | -                |
 
 ### Selection Priority
 1. **Unique requirement match**: If the query mentions a specific capability listed in a model's "Use when" field, select that model — even if it is ⚠️ partial-spec.
 2. **Modality/species match**: ATAC-only → atacformer. Plant → scplantllm. Multi-omics → scmulan. Non-standard species → uce.
-3. **Task-specific match**: Zero-shot annotation → sccello or chatcell. Perturbation/drug → scfoundation. Spatial → nicheformer.
+3. **Task-specific match**: Zero-shot annotation → sccello or chatcell. Perturbation → tabula. Spatial → nicheformer.
 4. **General fallback**: Only select scgpt or geneformer when no specific differentiating requirement is present.
 
 ### Rules
