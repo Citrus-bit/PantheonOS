@@ -138,6 +138,31 @@ that precede standard single-cell analysis (QC, normalization, clustering, etc.)
 
 ---
 
+## Database Access
+
+Tools for querying genomic databases, downloading sequencing data from public
+repositories, and accessing large-scale single-cell datasets programmatically.
+
+**Skill index**: [database_access/SKILL.md](./database_access/SKILL.md)
+
+**Tools covered**:
+- **gget**: Python package with 23 modules for querying Ensembl, NCBI, UniProt,
+  ARCHS4, Enrichr, COSMIC, OpenTargets, CellxGene, cBioPortal, PDB, and Bgee
+- **iSeq**: Bash CLI for downloading sequencing data from GSA, SRA, ENA, DDBJ,
+  and GEO databases with parallel downloads and Aspera support
+- **CZ CELLxGENE Census**: Cloud-based Python API for accessing 217M+
+  single-cell RNA-seq observations with flexible metadata queries and
+  pre-computed embeddings
+
+**When to use**:
+- Querying gene/protein information from public databases
+- Downloading raw sequencing data (FASTQ/SRA) from public repositories
+- Accessing curated single-cell RNA-seq datasets by tissue, cell type, disease
+- Performing enrichment analysis or cancer mutation queries
+- Fetching reference genomes, annotations, and sequences
+
+---
+
 ## Supplementary Reference: SC Best Practices
 
 For more comprehensive guidance on single-cell and spatial omics analysis, refer to
