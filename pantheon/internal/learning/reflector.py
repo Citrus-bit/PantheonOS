@@ -404,7 +404,7 @@ class Reflector:
         )
         
         # Extract question and final_answer from messages
-        with open(input.details_path, 'r') as f:
+        with open(input.details_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         messages = data.get("messages", [])
         
