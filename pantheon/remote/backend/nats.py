@@ -458,17 +458,25 @@ class NATSRemoteWorker(RemoteWorker):
 
     async def run(self):
         """Start worker"""
+        logger.info(f"[NATSWorker.run] Starting worker for subject: {self.service_subject}")
         if self.nc is None:
+            logger.info(f"[NATSWorker.run] Connecting to NATS: {self._backend.server_urls}")
             self.nc, _ = await self._backend._get_connection()
             self.kv_store = self._backend._kv
+            logger.info(f"[NATSWorker.run] NATS connected: {self.nc.connected_url}")
 
         self._running = True
         await self._register_to_kv_store()
+        logger.info(f"[NATSWorker.run] KV store registered, subscribing to: {self.service_subject}")
 
         self._subscription = await self.nc.subscribe(
             self.service_subject, cb=self._handle_request
         )
         logger.info(f"NATS worker: {self.service_subject} registered.")
+
+        # Signal that the worker is ready to accept requests
+        if hasattr(self, '_on_ready') and self._on_ready:
+            self._on_ready.set()
 
         while self._running:
             await asyncio.sleep(1)

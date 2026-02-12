@@ -1,3 +1,4 @@
+import asyncio
 import inspect
 import json
 import sys
@@ -214,6 +215,7 @@ class ToolSet(ABC):
         self._service_name = name
         self._worker_kwargs = kwargs
         self._setup_completed = False
+        self._worker_ready = asyncio.Event()  # Fired after NATS worker subscribes
         self.worker = None
         self._backend = None
 
@@ -362,24 +364,35 @@ class ToolSet(ABC):
         if remote:
             # ===== Remote mode: Start RemoteWorker =====
             # Create backend and worker in run method
+            logger.info(f"[ToolSet.run] Creating remote backend...")
             from .remote import RemoteBackendFactory
             self._backend = RemoteBackendFactory.create_backend()
+            logger.info(f"[ToolSet.run] Backend created: {type(self._backend).__name__}")
+            logger.info(f"[ToolSet.run] Server URLs: {getattr(self._backend, 'server_urls', 'N/A')}")
+
             self.worker = self._backend.create_worker(
                 self._service_name, **self._worker_kwargs
             )
+            logger.info(f"[ToolSet.run] Worker created: {type(self.worker).__name__}")
+
+            # Wire up ready signal: worker sets this after NATS subscription
+            self.worker._on_ready = self._worker_ready
 
             # Register all tools with the worker
             for name, (method, tool_kwargs) in self._functions.items():
                 self.worker.register(method, **tool_kwargs)
+            logger.info(f"[ToolSet.run] Registered {len(self._functions)} tools")
 
             # Run custom setup
+            logger.info(f"[ToolSet.run] Running setup...")
             await self.run_setup()
             self._setup_completed = True
+            logger.info(f"[ToolSet.run] Setup completed")
 
             logger.info(f"Remote Server: {getattr(self.worker, 'servers', 'N/A')}")
-
             logger.info(f"Service Name: {self.worker.service_name}")
             logger.info(f"Service ID: {self.service_id}")
+            logger.info(f"[ToolSet.run] Starting worker.run() (NATS subscribe)...")
             try:
                 await self.worker.run()
             finally:

@@ -478,6 +478,13 @@ async def start_services(
             old_nats_servers = os.environ.get("NATS_SERVERS")
             os.environ["NATS_SERVERS"] = nats_servers
 
+            # Clear subject prefix for local auto-start mode (no hub isolation needed)
+            # A stale NATS_SUBJECT_PREFIX from a previous hub session causes subject mismatch:
+            # backend subscribes to "<prefix>.pantheon.service.<id>" but frontend pings "pantheon.service.<id>"
+            old_prefix = os.environ.pop("NATS_SUBJECT_PREFIX", None)
+            if old_prefix:
+                logger.info(f"[STARTUP] Cleared stale NATS_SUBJECT_PREFIX: {old_prefix}")
+
             # Set WebSocket port for toolset.py logging (safe URL parsing)
             from urllib.parse import urlparse
             ws_url = server_info["ws_url"]
@@ -584,14 +591,68 @@ async def start_services(
         # Using existing endpoint_service_id
         endpoint_mode = "process"
 
-    # ===== Step 1.5: Auto-open browser if requested =====
+    # ===== Step 2: Create ChatRoom =====
+    chat_room = ChatRoom(
+        endpoint=endpoint if endpoint is not None else final_endpoint_service_id,
+        memory_dir=memory_dir,
+        name=service_name,
+        speech_to_text_model=speech_to_text_model,
+        enable_nats_streaming=True,  # Enable NATS streaming for remote service
+        enable_auto_chat_name=True,  # Enable auto chat name for UI mode
+        learning_config=settings.get_learning_config(),
+        id_hash=id_hash,  # Pass id_hash to ensure stable Service ID
+        **kwargs,
+    )
+
+    # ===== Step 2.5: Verify NATS TCP connectivity (diagnostic) =====
+    if auto_start_nats and server_info is not None:
+        nats_tcp_url = server_info["tcp_url"]
+        logger.info(f"[STARTUP] Verifying NATS TCP connectivity: {nats_tcp_url}")
+        logger.info(f"[STARTUP] NATS_SERVERS env: {os.environ.get('NATS_SERVERS', 'NOT SET')}")
+        try:
+            import nats as nats_lib
+            test_nc = await asyncio.wait_for(
+                nats_lib.connect(servers=[nats_tcp_url]),
+                timeout=5
+            )
+            logger.info(f"[STARTUP] ✓ NATS TCP connection verified: {nats_tcp_url}")
+            await test_nc.close()
+        except Exception as e:
+            logger.error(f"[STARTUP] ✗ NATS TCP connection FAILED: {nats_tcp_url} -> {e}")
+            logger.error(f"[STARTUP]   Frontend WS may work but backend TCP does not!")
+
+    # ===== Step 3: Start ChatRoom (always as remote service) =====
+    # Launch as background task so we can wait for worker readiness before opening browser
+    def _on_run_error(task: asyncio.Task):
+        """Log errors from background run task immediately."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            logger.error(f"[STARTUP] ChatRoom.run() failed: {exc}")
+
+    run_task = asyncio.create_task(chat_room.run(log_level=log_level, remote=True))
+    run_task.add_done_callback(_on_run_error)
+
+    # ===== Step 3.5: Wait for worker to subscribe, then open browser =====
     if auto_ui and auto_start_nats and server_info is not None:
         # Determine frontend URL
         if isinstance(auto_ui, str):
             frontend_url = auto_ui
         else:
-            # Default to Vercel deployment
-            frontend_url = "https://pantheon-ui.vercel.app"
+            # Default to local dev server
+            frontend_url = "https://pantheon-ui.aristoteleo.com"
+
+        # Wait for NATS worker to be ready (subscribed) before opening browser
+        try:
+            await asyncio.wait_for(chat_room._worker_ready.wait(), timeout=30)
+            logger.info("[STARTUP] Worker is ready, opening browser...")
+        except asyncio.TimeoutError:
+            # Check if run_task already failed
+            if run_task.done() and run_task.exception():
+                logger.error(f"[STARTUP] ChatRoom.run() failed before worker was ready: {run_task.exception()}")
+            else:
+                logger.warning("[STARTUP] Worker did not become ready within 30s, opening browser anyway")
 
         # Calculate service ID based on id_hash
         service_id = generate_service_id(id_hash)
@@ -606,22 +667,8 @@ async def start_services(
             service_id=service_id,
         )
 
-    # ===== Step 2: Create ChatRoom =====
-    chat_room = ChatRoom(
-        endpoint=endpoint if endpoint is not None else final_endpoint_service_id,
-        memory_dir=memory_dir,
-        name=service_name,
-        speech_to_text_model=speech_to_text_model,
-        enable_nats_streaming=True,  # Enable NATS streaming for remote service
-        enable_auto_chat_name=True,  # Enable auto chat name for UI mode
-        learning_config=settings.get_learning_config(),
-        id_hash=id_hash,  # Pass id_hash to ensure stable Service ID
-        **kwargs,
-    )
-
-    # ===== Step 3: Start ChatRoom (always as remote service) =====
     try:
-        return await chat_room.run(log_level=log_level, remote=True)
+        return await run_task
     finally:
         # ===== CLEANUP: Stop auto-started NATS =====
         if nats_manager is not None:
