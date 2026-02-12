@@ -2,7 +2,8 @@
 Image Generation ToolSet.
 
 Provides image generation capabilities via generate_image tool.
-Supports both text-only models (DALL-E, Imagen) and multimodal models (Gemini Flash Image).
+Supports text-only models (DALL-E, Imagen), multimodal models (Gemini Flash Image),
+and native image editing models (OpenAI gpt-image).
 """
 
 import litellm
@@ -21,6 +22,13 @@ from pantheon.utils.vision import (
 MULTIMODAL_IMAGE_MODELS = {
     "gemini/gemini-3-pro-image-preview",
     "gemini/gemini-2.0-flash-exp-image-generation",
+}
+
+# Models that support native image editing via aimage_edit API (accept reference images)
+IMAGE_EDIT_MODELS = {
+    "gpt-image-1",
+    "gpt-image-1.5",
+    "chatgpt-image-latest",
 }
 
 
@@ -67,6 +75,10 @@ class ImageGenerationToolSet(ToolSet):
     def _is_multimodal_model(self, model: str) -> bool:
         """Check if model supports multimodal image generation."""
         return any(m in model for m in MULTIMODAL_IMAGE_MODELS)
+
+    def _supports_image_edit(self, model: str) -> bool:
+        """Check if model supports native image editing (reference image input)."""
+        return any(m in model for m in IMAGE_EDIT_MODELS)
 
     def _get_chat_id(self) -> str:
         """Get chat_id from context."""
@@ -133,8 +145,13 @@ class ImageGenerationToolSet(ToolSet):
                     prompt, model, reference_images
                 )
             else:
-                # Text-only model: use aimage_generation API
-                if reference_images:
+                # Text-only model: use aimage_generation / aimage_edit API
+                if reference_images and self._supports_image_edit(model):
+                    # Native image edit: pass reference images directly
+                    return await self._image_edit_gen(
+                        prompt, model, reference_images
+                    )
+                elif reference_images:
                     # Fallback: describe reference images using vision model
                     description = await self._describe_reference_images(
                         reference_images
@@ -229,6 +246,53 @@ class ImageGenerationToolSet(ToolSet):
             "success": True,
             "images": saved_paths,
             "text": message.content,
+            "model_used": model,
+            "_metadata": {
+                "current_cost": cost,
+            }
+        }
+
+    async def _image_edit_gen(
+        self,
+        prompt: str,
+        model: str,
+        reference_images: list[str],
+    ) -> dict:
+        """Native image editing via aimage_edit API (OpenAI gpt-image models)."""
+        # Resolve file paths (strip file:// prefix, normalize)
+        resolved_paths = []
+        for ref in reference_images:
+            path = ref
+            if path.startswith("file://"):
+                path = path[7:]
+            resolved = self.image_store.normalize_local_path(path)
+            resolved_paths.append(resolved)
+
+        response = await litellm.aimage_edit(
+            model=model,
+            image=resolved_paths,
+            prompt=prompt,
+            size="1024x1024",
+            n=1,
+        )
+
+        # Extract cost from response
+        cost = self._extract_cost_from_response(response)
+
+        chat_id = self._get_chat_id()
+        saved_paths = []
+        for item in response.data:
+            if item.b64_json:
+                path = self.image_store.save_base64_image(
+                    chat_id, f"data:image/png;base64,{item.b64_json}"
+                )
+                saved_paths.append(path)
+            elif item.url:
+                saved_paths.append(item.url)
+
+        return {
+            "success": True,
+            "images": saved_paths,
             "model_used": model,
             "_metadata": {
                 "current_cost": cost,

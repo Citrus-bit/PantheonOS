@@ -109,8 +109,8 @@ DEFAULT_IMAGE_GEN_MODELS = {
         "normal": ["gemini/gemini-3-pro-image-preview"],
     },
     "openai": {
-        "high": ["dall-e-3"],
-        "normal": ["dall-e-3"],
+        "high": ["chatgpt-image-latest", "gpt-image-1.5"],
+        "normal": ["chatgpt-image-latest", "gpt-image-1.5"],
     },
 }
 
