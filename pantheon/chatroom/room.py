@@ -700,8 +700,14 @@ class ChatRoom(ToolSet):
     @tool
     async def set_active_agent(self, chat_name: str, agent_name: str):
         """Set the active agent for a chat."""
-        # Get the team for this specific chat
-        team = await self.get_team_for_chat(chat_name)
+        try:
+            # Get the team for this specific chat
+            team = await self.get_team_for_chat(chat_name)
+        except KeyError:
+            return {
+                "success": False,
+                "message": f"Chat '{chat_name}' not found",
+            }
 
         # Verify the requested agent is part of the primary team (not a sub-agent)
         target_agent = next(
@@ -727,14 +733,20 @@ class ChatRoom(ToolSet):
     @tool
     async def get_active_agent(self, chat_name: str) -> dict:
         """Get the active agent for a chat."""
-        # Get the team for this specific chat
-        team = await self.get_team_for_chat(chat_name)
-        memory = await run_func(self.memory_manager.get_memory, chat_name)
-        active_agent = team.get_active_agent(memory)
-        return {
-            "success": True,
-            "agent": active_agent.name,
-        }
+        try:
+            # Get the team for this specific chat
+            team = await self.get_team_for_chat(chat_name)
+            memory = await run_func(self.memory_manager.get_memory, chat_name)
+            active_agent = team.get_active_agent(memory)
+            return {
+                "success": True,
+                "agent": active_agent.name,
+            }
+        except KeyError:
+            return {
+                "success": False,
+                "message": f"Chat '{chat_name}' not found",
+            }
 
     @tool
     async def create_chat(
