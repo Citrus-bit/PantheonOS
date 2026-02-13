@@ -1,5 +1,4 @@
 import asyncio
-import getpass
 import os
 import sys
 import uuid
@@ -385,7 +384,7 @@ async def start_services(
         workspace_path: The path to the workspace. (default from settings)
         log_level: The level of the log. (default from settings)
         speech_to_text_model: The model to use for speech to text. (default from settings)
-        id_hash: Hash string to generate stable service_id (e.g., "alice", "bob"). If not provided, uses current username for reproducible ID.
+        id_hash: Hash string to generate stable service_id (e.g., "alice", "bob"). If not provided, generates a unique UUID per instance.
         endpoint_mode: How to start the endpoint. Options: "embedded" (same event loop),
                       "process" (independent subprocess).
         nats_servers: NATS server URL(s). Supports WebSocket (wss://) and TCP (nats://).
@@ -415,14 +414,15 @@ async def start_services(
     work_dir = Path(work_dir_str).resolve()
     work_dir.mkdir(parents=True, exist_ok=True)
 
+    # ========== Set log level early so NATS startup logs are visible ==========
+    from pantheon.utils import log
+    log.set_level(log_level or "INFO")
+
     # ========== NATS AUTO-START ==========
     nats_manager = None
     server_info = None
     if auto_start_nats:
         logger.info("[STARTUP] Auto-starting local NATS server...")
-
-        # Clean up zombie processes and stale configs from previous runs
-        await cleanup_zombie_nats(work_dir)
 
         # Validate: only supported in embedded mode
         if endpoint_mode != "embedded":
@@ -453,15 +453,26 @@ async def start_services(
         )
 
         try:
-            # Start NATS server
-            server_info = await nats_manager.start()
+            # Check if NATS is already running — reuse it instead of starting a new one
+            server_info = await nats_manager.detect_existing()
 
-            logger.info(f"✓ NATS server started successfully")
-            logger.info(f"  TCP URL: {server_info['tcp_url']}")
-            logger.info(f"  WebSocket URL: {server_info['ws_url']}")
-            logger.info(f"  Monitoring: {server_info['http_url']}")
-            logger.info(f"  Logs: {server_info['log_file']}")
-            logger.info(f"  PID: {server_info['pid']}")
+            if server_info:
+                logger.info(f"✓ Reusing existing NATS server")
+                logger.info(f"  TCP URL: {server_info['tcp_url']}")
+                logger.info(f"  WebSocket URL: {server_info['ws_url']}")
+                logger.info(f"  Monitoring: {server_info['http_url']}")
+                # Not managed by us — don't stop it on exit
+                nats_manager = None
+            else:
+                # No existing server, start a new one
+                server_info = await nats_manager.start()
+
+                logger.info(f"✓ NATS server started successfully")
+                logger.info(f"  TCP URL: {server_info['tcp_url']}")
+                logger.info(f"  WebSocket URL: {server_info['ws_url']}")
+                logger.info(f"  Monitoring: {server_info['http_url']}")
+                logger.info(f"  Logs: {server_info['log_file']}")
+                logger.info(f"  PID: {server_info['pid']}")
 
             # Log frontend connection info prominently
             logger.info("")
@@ -562,8 +573,9 @@ async def start_services(
     if final_endpoint_service_id is None:
         # Generate id_hash if not provided
         if id_hash is None:
-            # Use current username for stable, reproducible Service ID
-            id_hash = getpass.getuser()
+            # Use a unique UUID so each chatroom instance gets its own service_id,
+            # preventing conflicts when multiple instances run concurrently
+            id_hash = str(uuid.uuid4())
 
         # Start endpoint based on mode
         if endpoint_mode == "embedded":

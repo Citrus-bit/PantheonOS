@@ -257,6 +257,61 @@ class NATSManager:
         logger.debug(f"Generated NATS config: {config_file}")
         return config_file
 
+    async def detect_existing(self) -> Optional[dict]:
+        """
+        Detect if a NATS server is already running on the default ports.
+
+        Checks HTTP healthz endpoint and TCP connectivity. If both pass,
+        returns server_info dict for reuse. Otherwise returns None.
+        """
+        http_url = f"http://localhost:{self.http_port}/healthz"
+        try:
+            # Check HTTP healthz
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    http_url, timeout=aiohttp.ClientTimeout(total=2)
+                ) as resp:
+                    if resp.status != 200:
+                        return None
+
+            # Check TCP connectivity
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection("127.0.0.1", self.tcp_port),
+                timeout=2.0,
+            )
+            writer.close()
+            await writer.wait_closed()
+
+            # Check WS port connectivity
+            ws_ok = False
+            try:
+                r2, w2 = await asyncio.wait_for(
+                    asyncio.open_connection("127.0.0.1", self.ws_port),
+                    timeout=2.0,
+                )
+                w2.close()
+                await w2.wait_closed()
+                ws_ok = True
+            except Exception:
+                pass
+
+            if not ws_ok:
+                logger.debug(f"[NATS] Existing server found on TCP:{self.tcp_port} but WS:{self.ws_port} not available")
+                return None
+
+            logger.info(f"[NATS] Detected existing NATS server on TCP:{self.tcp_port} WS:{self.ws_port} HTTP:{self.http_port}")
+            return {
+                "tcp_url": f"nats://localhost:{self.tcp_port}",
+                "ws_url": f"ws://127.0.0.1:{self.ws_port}",
+                "http_url": f"http://localhost:{self.http_port}",
+                "config_file": None,
+                "log_file": None,
+                "pid": None,
+                "reused": True,
+            }
+        except Exception:
+            return None
+
     async def start(self) -> dict:
         """
         Start local NATS server subprocess.
