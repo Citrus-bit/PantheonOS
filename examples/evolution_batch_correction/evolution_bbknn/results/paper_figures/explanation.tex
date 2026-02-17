@@ -1,0 +1,491 @@
+\documentclass[8pt]{article}
+\usepackage[margin=0.55cm, a4paper]{geometry}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{amsmath, amssymb}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{multicol}
+
+\tcbuselibrary{skins,breakable}
+
+% ── Colors ──────────────────────────────────────────────────────────────
+\definecolor{keychange}{RGB}{41,128,185}
+\definecolor{removed}{RGB}{192,57,43}
+\definecolor{added}{RGB}{39,174,96}
+\definecolor{lightblue}{RGB}{232,244,253}
+\definecolor{lightyellow}{RGB}{253,245,230}
+\definecolor{lightgreen}{RGB}{232,246,232}
+\definecolor{hdrA}{RGB}{52,73,94}
+\definecolor{hdrB}{RGB}{34,139,34}
+
+\algrenewcommand\algorithmicrequire{\textbf{Input:}}
+\algrenewcommand\algorithmicensure{\textbf{Output:}}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{2pt}
+\pagestyle{empty}
+
+% ── Compact step box ─────────────────────────────────────────────────────
+\newtcolorbox{stepbox}[1][]{%
+    colback=white, colframe=black!30, boxrule=0.3pt, arc=1.5pt,
+    left=2pt, right=2pt, top=1pt, bottom=1pt,
+    fontupper=\footnotesize, #1}
+
+\newtcolorbox{keyboxG}[1][]{%
+    colback=lightgreen!40, colframe=added!70, boxrule=0.5pt, arc=1.5pt,
+    left=2pt, right=2pt, top=1pt, bottom=1pt,
+    fontupper=\footnotesize, #1}
+
+\newtcolorbox{warnbox}[1][]{%
+    colback=lightyellow!60, colframe=removed!50, boxrule=0.5pt, arc=1.5pt,
+    left=2pt, right=2pt, top=1pt, bottom=1pt,
+    fontupper=\footnotesize, #1}
+
+% Column width for 2-col portrait layout
+\newlength{\colw}
+
+\begin{document}
+
+% ======================================================================
+%                     PAGE 1 -- FLOW: get_graph  (PORTRAIT)
+% ======================================================================
+\setlength{\colw}{0.48\textwidth}
+
+\begin{center}
+{\large\bfseries Algorithmic Flow: KNN Graph Construction (\textsc{get\_graph})}\\[1pt]
+{\scriptsize Original vs.\ evolved strategy for batch-balanced nearest-neighbor graph construction}
+\end{center}
+\vspace{2pt}
+
+\noindent
+%% ── Column A: Original ──────────────────────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrA, colframe=hdrA, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering Original BBKNN\\[-2pt]
+{\scriptsize\mdseries All-vs-all batch query}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{stepbox}
+\textbf{1.} For each batch $b$:\\
+Build tree index on $X_b$
+\end{stepbox}\vspace{1pt}
+
+\begin{warnbox}
+\textbf{2. For each target batch} $b_\text{to}$:
+\begin{enumerate}[leftmargin=1em, itemsep=0pt, topsep=1pt, parsep=0pt]
+\item Build tree on $X_{b_\text{to}}$
+\item \colorbox{lightyellow}{Query \emph{all} $N$ cells} against $b_\text{to}$
+\item Get $k$ neighbors per cell from $b_\text{to}$
+\item Store in columns $[b \cdot k, (b{+}1) \cdot k)$
+\end{enumerate}
+{\scriptsize\color{removed} Every cell queries every batch ---\\
+no cross-batch filtering or validation}
+\end{warnbox}\vspace{1pt}
+
+\begin{stepbox}
+\textbf{3.} Concatenate: $k_\text{total} = k \times B$\\
+neighbors per cell (all batches equal weight)
+\end{stepbox}\vspace{1pt}
+
+\begin{stepbox}
+\textbf{4.} Sort all neighbors by distance
+\end{stepbox}
+
+\vspace{4pt}
+\begin{center}
+{\scriptsize\color{black!50} $O(N \times B)$ queries;\\
+many spurious cross-batch edges;\\
+no within-batch vs.\ cross-batch distinction}
+\end{center}
+\end{minipage}%
+\hfill
+%% ── Column B: Optimized (MNN) ────────────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrB, colframe=hdrB, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering bbknn\_optimized\\[-2pt]
+{\scriptsize\mdseries Within-batch backbone + MNN cross-batch}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{1. Within-batch backbone:}\\
+For each batch $b$: query cells of $b$\\
+against tree of $b$ only $\to$ $k_\text{in}$ neighbors\\
+{\scriptsize\color{added} Preserves local manifold structure\\
+and cell-type neighborhoods}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{2. Cross-batch candidates:}\\
+For each target batch $b_\text{to}$: query all $N$\\
+cells against $b_\text{to}$ tree $\to$ $k'$ candidates\\
+{\scriptsize Expansion factor $2\text{--}3\times$ for MNN pool}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{3. MNN filter:}\\
+For each cell $i$ in batch $b_i$:
+\begin{enumerate}[leftmargin=1em, itemsep=0pt, topsep=1pt, parsep=0pt]
+\item Get candidates $j$ in batch $b_\text{to}$
+\item \colorbox{lightgreen}{Check: is $i$ in $j$'s top-$k'$ of $b_i$?}
+\item Keep only \textbf{mutual} pairs $(i,j)$
+\item De-duplicate; sort by distance
+\end{enumerate}
+{\scriptsize\color{added} Removes one-way false positive\\
+cross-batch connections}
+\end{keyboxG}\vspace{1pt}
+
+\begin{stepbox}
+\textbf{4.} Cap cross-batch at $0.7 \times k_\text{cross}$;\\
+concatenate with within-batch backbone;\\
+sort by distance
+\end{stepbox}
+
+\vspace{4pt}
+\begin{center}
+{\scriptsize\color{black!50} MNN ensures bidirectional support;\\
+conservative cross-batch budget protects biology}
+\end{center}
+\end{minipage}
+
+% ======================================================================
+%                     PAGE 2 -- FLOW: connectivities + trimming
+% ======================================================================
+\newpage
+\setlength{\colw}{0.48\textwidth}
+
+\begin{center}
+{\large\bfseries Algorithmic Flow: Connectivity Weighting \& Graph Trimming}\\[1pt]
+{\scriptsize Edge weighting (\textsc{compute\_connectivities}) and graph sparsification (\textsc{trimming})}
+\end{center}
+\vspace{2pt}
+
+\noindent
+%% ── Column A: Original ──────────────────────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrA, colframe=hdrA, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering Original BBKNN\\[-2pt]
+{\scriptsize\mdseries UMAP fuzzy set + threshold trim}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{warnbox}
+\textbf{1. Sparse matrix construction (COO):}\\
+\colorbox{lightyellow}{Nested Python loops:}\\
+\texttt{for i in range(N):}\\
+\quad\texttt{for j in range(k):}\\
+\quad\quad\texttt{rows[i*k+j] = i; cols[...] = idx[i,j]}\\
+{\scriptsize\color{removed} $O(N \cdot k)$ Python iterations}
+\end{warnbox}\vspace{1pt}
+
+\begin{warnbox}
+\textbf{2. Connectivity weighting:}\\
+\colorbox{lightyellow}{UMAP \texttt{fuzzy\_simplicial\_set}}\\
+$\to$ local $\sigma$, set-union symmetrization\\[2pt]
+{\scriptsize\color{removed} Batch-agnostic: treats within-batch\\
+and cross-batch edges identically;\\
+can amplify spurious cross-batch edges}
+\end{warnbox}\vspace{1pt}
+
+\begin{warnbox}
+\textbf{3. Trimming:}
+\begin{enumerate}[leftmargin=1em, itemsep=0pt, topsep=1pt, parsep=0pt]
+\item For each row: find threshold at rank $k_\text{trim}$
+\item For each row: zero values below threshold
+\item Transpose matrix
+\item Repeat step 2 on transposed rows
+\end{enumerate}
+{\scriptsize\color{removed} Two-pass filter with Python per-row loops;\\
+no mutuality awareness --- mutual edges\\
+treated same as one-way edges}
+\end{warnbox}
+
+\vspace{4pt}
+\begin{center}
+{\scriptsize\color{black!50} UMAP can amplify false-positive\\
+cross-batch edges; threshold trim\\
+may discard biologically important\\
+mutual connections}
+\end{center}
+\end{minipage}%
+\hfill
+%% ── Column B: Optimized ──────────────────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrB, colframe=hdrB, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering bbknn\_optimized\\[-2pt]
+{\scriptsize\mdseries Self-tuning kernel + mutuality-aware trim}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{1. Sparse matrix construction (COO):}\\
+\colorbox{lightgreen}{\texttt{np.repeat(arange(N), k)} + \texttt{reshape(-1)}}\\
+Vectorized mask for invalid ($-1$) and self edges\\
+{\scriptsize\color{added} Eliminates nested Python loops entirely}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{2. Batch-aware kernel weighting:}\\
+New function: \texttt{compute\_connectivities\_batchaware\_kernel}\\[2pt]
+Self-tuning kernel (Zelnik-Manor \& Perona):\\
+\colorbox{lightgreen}{$w_{ij} = \exp\!\big(-d_{ij}^2 / (\sigma_i \cdot \sigma_j + \varepsilon)\big)$}\\[2pt]
+\colorbox{lightgreen}{Separate scales $\sigma_\text{in}(i)$, $\sigma_\text{cross}(i)$}\\
+selected based on batch membership of $j$\\[2pt]
+\colorbox{lightgreen}{Cross-batch damping: $w \gets \lambda \cdot w$; $\lambda = 0.5$}\\
+{\scriptsize\color{added} Prevents cross-batch edges from\\
+dominating local structure}\\[2pt]
+Symmetrize: $W_\text{union} = W + W^\top - W \odot W^\top$\\
+{\scriptsize (UMAP-style set union on weights)}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{3. Mutuality-aware trimming:}
+\begin{enumerate}[leftmargin=1em, itemsep=0pt, topsep=1pt, parsep=0pt]
+\item Detect bidirectional edges via\\
+    \colorbox{lightgreen}{$M = \text{sign}(W) \odot \text{sign}(W^\top)$}
+\item \colorbox{lightgreen}{Priority = data + mutual\_boost $\cdot M$}\\
+    {\scriptsize Mutual edges get large additive boost}
+\item \texttt{np.argpartition} top-$k$ by priority
+\item Max-symmetrize: $W_\text{out} = \max(W, W^\top)$
+\end{enumerate}
+{\scriptsize\color{added} Mutual (bidirectional) edges\\
+preferentially preserved}
+\end{keyboxG}
+\end{minipage}
+
+% ======================================================================
+%              PAGE 3-4 -- PSEUDOCODE
+% ======================================================================
+\newpage
+
+\begin{center}
+{\large\bfseries Detailed Pseudocode Comparison}\\[3pt]
+{\normalsize Algorithmic differences in KNN graph construction (\textsc{get\_graph}) and connectivity weighting (\textsc{compute\_connectivities})}
+\end{center}
+\vspace{4pt}
+
+{\large\bfseries 1. KNN Graph Construction (\textsc{get\_graph})}
+
+\vspace{3pt}
+
+\begin{tcolorbox}[
+    title={\textbf{Algorithm 1a:} Original BBKNN --- All-vs-All Batch Query},
+    colback=white, colframe=black!60, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=4pt, right=4pt, top=2pt, bottom=2pt
+]
+\begin{algorithmic}[1]
+\small
+\Require PCA matrix $X \in \mathbb{R}^{N \times d}$, batch labels, $k$ neighbors per batch, $B$ batches
+\Ensure KNN indices and distances with $k_\text{total} = k \times B$ neighbors per cell
+\State Allocate $\text{knn\_idx} \in \mathbb{Z}^{N \times kB}$, $\text{knn\_dist} \in \mathbb{R}^{N \times kB}$
+\For{each batch $b_\text{to} \in \{1, \ldots, B\}$}
+    \State Build tree index on $X_{b_\text{to}}$
+    \State \colorbox{lightyellow}{$(d, \text{idx}) \gets \textsc{QueryTree}(X_\text{all}, \text{tree}_{b_\text{to}}, k)$} \Comment{\textcolor{removed}{All $N$ cells query each batch}}
+    \State $\text{knn\_idx}[:, b \cdot k : (b{+}1) \cdot k] \gets \text{GlobalIdx}(\text{idx})$
+    \State $\text{knn\_dist}[:, b \cdot k : (b{+}1) \cdot k] \gets d$
+\EndFor
+\State Sort each row of knn\_idx, knn\_dist by distance
+\end{algorithmic}
+\end{tcolorbox}
+
+\vspace{4pt}
+
+\begin{tcolorbox}[
+    title={\textbf{Algorithm 1b:} bbknn\_optimized --- Within-batch Backbone + MNN Cross-batch},
+    colback=lightgreen!20, colframe=added!80, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=4pt, right=4pt, top=2pt, bottom=2pt
+]
+\begin{algorithmic}[1]
+\small
+\Require PCA matrix $X$, batch labels, $k_\text{in}$ (within-batch neighbors), expansion factor
+\Ensure KNN with $k_\text{total} = k_\text{in} + k_\text{cross}$ neighbors per cell ($k_\text{cross} = \lfloor 0.7 \times (B{-}1) \times k_\text{in} \rfloor$)
+\State \colorbox{lightgreen}{\textbf{Phase 1: Within-batch backbone}} \Comment{\textcolor{added}{Preserves local manifold structure}}
+\For{each batch $b$}
+    \State Build tree on $X_b$; query cells of $b$ against own tree $\to$ $k_\text{in}$ neighbors
+    \State $\text{knn\_in}[\text{cells}_b] \gets$ global indices and distances
+\EndFor
+\State \colorbox{lightgreen}{\textbf{Phase 2: Cross-batch MNN candidates}} ($k' = \text{expansion} \times k_\text{in}$)
+\For{each target batch $b_\text{to}$}
+    \State Build tree on $X_{b_\text{to}}$; query \emph{all} $N$ cells $\to$ $k'$ candidates per cell
+    \State Store in $\text{cross}[b_\text{to}]$ \Comment{Indexed by target batch}
+\EndFor
+\State \colorbox{lightgreen}{\textbf{Phase 3: MNN filtering}} \Comment{\textcolor{added}{Keep only mutual nearest neighbors}}
+\For{each cell $i$ with batch $b_i$}
+    \For{each other batch $b_\text{to} \neq b_i$}
+        \State Get candidates $j \in \text{cross}[b_\text{to}][i]$ with distances
+        \State \colorbox{lightgreen}{Mutual test: is $i \in \text{cross}[b_i][j]$?} \Comment{Bidirectional support required}
+        \State Keep only mutual pairs $(i, j)$
+    \EndFor
+    \State De-duplicate by keeping closest; sort by distance; cap at $k_\text{cross}$
+\EndFor
+\State Concatenate within-batch + cross-batch; sort by distance
+\end{algorithmic}
+\end{tcolorbox}
+
+\vspace{6pt}
+
+{\large\bfseries 2. Connectivity Weighting \& Trimming}
+
+\vspace{3pt}
+
+\begin{tcolorbox}[
+    title={\textbf{Algorithm 2a:} Original BBKNN --- UMAP Fuzzy Set + Threshold Trim},
+    colback=white, colframe=black!60, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=4pt, right=4pt, top=2pt, bottom=2pt
+]
+\begin{algorithmic}[1]
+\small
+\Require KNN indices \& distances $(N \times k_\text{total})$
+\Ensure Sparse connectivity matrix $W$
+\State \colorbox{lightyellow}{\textbf{COO construction:} nested Python loops over $N \times k$ entries} \Comment{\textcolor{removed}{$O(Nk)$ Python iterations}}
+\State $W \gets$ \colorbox{lightyellow}{\textsc{UmapFuzzySimplicialSet}(knn\_idx, knn\_dist)} \Comment{\textcolor{removed}{Batch-agnostic weighting}}
+\State \textbf{Trimming:} For each row: find threshold at rank $k_\text{trim}$; zero below; transpose; repeat
+\end{algorithmic}
+\end{tcolorbox}
+
+\newpage
+
+\begin{tcolorbox}[
+    title={\textbf{Algorithm 2b:} bbknn\_optimized --- Self-tuning Kernel + Mutuality-aware Trim},
+    colback=lightgreen!20, colframe=added!80, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=4pt, right=4pt, top=2pt, bottom=2pt
+]
+\begin{algorithmic}[1]
+\small
+\Require KNN indices \& distances, batch labels
+\Ensure Sparse connectivity matrix $W$
+\State \colorbox{lightgreen}{\textbf{COO:} \texttt{np.repeat(arange(N), k)} + \texttt{reshape(-1)} (vectorized)} \Comment{\textcolor{added}{No Python loops}}
+\State \textbf{--- Self-tuning kernel (Zelnik-Manor \& Perona) ---}
+\State Classify each edge as within-batch or cross-batch via batch labels
+\For{each cell $i$}
+    \State \colorbox{lightgreen}{$\sigma_\text{in}(i) \gets k$th closest within-batch neighbor distance}
+    \State \colorbox{lightgreen}{$\sigma_\text{cross}(i) \gets k$th closest cross-batch neighbor distance}
+\EndFor
+\State $\sigma_i, \sigma_j \gets$ select $\sigma_\text{in}$ or $\sigma_\text{cross}$ based on batch membership of edge $(i,j)$
+\State \colorbox{lightgreen}{$w_{ij} \gets \exp\!\big(-d_{ij}^2 / (\sigma_i \cdot \sigma_j + \varepsilon)\big)$} \Comment{\textcolor{added}{Self-tuning Gaussian kernel}}
+\State \colorbox{lightgreen}{If cross-batch edge: $w_{ij} \gets \lambda \cdot w_{ij}$}; \quad $\lambda = 0.5$ \Comment{\textcolor{added}{Cross-batch damping}}
+\State Symmetrize: $W \gets W + W^\top - W \odot W^\top$ \Comment{UMAP-style fuzzy union}
+\State \textbf{--- Mutuality-aware trimming ---}
+\State \colorbox{lightgreen}{Mutual mask: $M \gets \text{sign}(W) \odot \text{sign}(W^\top)$} \Comment{\textcolor{added}{Detect bidirectional edges}}
+\State Priority $\gets$ data $+$ mutual\_boost $\cdot M$ \Comment{Mutual edges get priority}
+\State \texttt{np.argpartition}: keep top-$k_\text{trim}$ per row by priority
+\State Max-symmetrize: $W_\text{out} \gets \max(W_\text{trimmed}, W_\text{trimmed}^\top)$
+\end{algorithmic}
+\end{tcolorbox}
+
+\newpage
+
+%% =====================================================================
+%%  SUMMARY TABLE + PERFORMANCE + EXPLANATIONS
+%% =====================================================================
+
+{\large\bfseries 3. Summary of Key Algorithmic Differences}
+
+\vspace{3pt}
+
+\renewcommand{\arraystretch}{1.3}
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{@{}p{2.6cm} p{5.5cm} p{6.3cm}@{}}
+\toprule
+\textbf{Component} & \textbf{Original} & \textbf{bbknn\_optimized} \\
+\midrule
+\textbf{Graph strategy} &
+    All-vs-all: every cell queries every batch; $k_\text{total} = k \times B$ &
+    \textcolor{added}{Within-batch backbone ($k_\text{in}$) + MNN-constrained cross-batch ($0.7 \times$ cap)} \\
+\addlinespace
+
+\textbf{Cross-batch filter} &
+    None (all edges kept) &
+    \textcolor{added}{Mutual nearest neighbor test: keep only bidirectional matches} \\
+\addlinespace
+
+\textbf{Edge weighting} &
+    UMAP fuzzy simplicial set (batch-agnostic) &
+    \textcolor{added}{Self-tuning kernel $w = e^{-d^2/(\sigma_i \sigma_j)}$ with cross-batch damping $\lambda{=}0.5$} \\
+\addlinespace
+
+\textbf{Scale estimation} &
+    UMAP internal (single $\sigma$ per cell) &
+    \textcolor{added}{Separate $\sigma_\text{in}$, $\sigma_\text{cross}$ per cell based on within/cross neighbor distances} \\
+\addlinespace
+
+\textbf{Trimming} &
+    Threshold per row, 2-pass transpose; Python loops &
+    \textcolor{added}{Mutual-first priority + \texttt{argpartition} top-$k$ + max-symmetrize} \\
+\addlinespace
+
+\textbf{COO construction} &
+    Nested Python loops $O(Nk)$ &
+    \textcolor{added}{Vectorized \texttt{np.repeat}/\texttt{reshape}} \\
+\addlinespace
+
+\textbf{Annoy query} &
+    List append per cell &
+    \textcolor{added}{Preallocated numpy arrays filled in-place} \\
+
+\bottomrule
+\end{tabular}
+\end{table}
+
+\vspace{6pt}
+
+{\large\bfseries 4. Performance Comparison}
+
+\vspace{3pt}
+
+\renewcommand{\arraystretch}{1.25}
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{@{}l c c c@{}}
+\toprule
+\textbf{Metric} & \textbf{Original} & \textbf{bbknn\_optimized} & \textbf{$\Delta$} \\
+\midrule
+Batch mixing score & 0.6430 & \textbf{0.6759} & +5.1\% \\
+Bio conservation score & 0.6036 & \textbf{0.7184} & +19.0\% \\
+Speed score & 0.4837 & \textbf{0.8020} & +65.8\% \\
+Execution time & 1.068s & \textbf{0.247s} & $\times$4.3 \\
+\addlinespace
+Evolution generation & 0 & 7 & --- \\
+Evolution order & 0 & 225 & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\vspace{6pt}
+
+{\large\bfseries 5. Why bbknn\_optimized Improved}
+
+\vspace{3pt}
+
+\begin{tcolorbox}[
+    title={\textbf{bbknn\_optimized}: Comprehensive improvement via MNN selection + batch-aware kernel + mutual trimming},
+    colback=lightgreen!10, colframe=added!60, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=6pt, right=6pt, top=3pt, bottom=3pt
+]
+\small
+\begin{itemize}[leftmargin=1em, itemsep=3pt]
+    \item \textbf{Bio conservation (+19.0\%)}: The most significant improvement comes from three complementary mechanisms that protect biological structure:
+    \begin{itemize}[leftmargin=1em, itemsep=1pt]
+        \item \textbf{Within-batch backbone} preserves local manifold structure and cell-type neighborhoods by maintaining $k_\text{in}$ neighbors from each cell's own batch.
+        \item \textbf{MNN filtering} removes spurious one-way cross-batch edges that would collapse distinct cell types. Only edges with bidirectional support (cell $i$ is a neighbor of $j$ \emph{and} $j$ is a neighbor of $i$) are retained.
+        \item \textbf{Self-tuning kernel} with separate $\sigma_\text{in}$/$\sigma_\text{cross}$ scales and $\lambda{=}0.5$ cross-batch damping prevents cross-batch edges from dominating local structure in the connectivity graph.
+    \end{itemize}
+
+    \item \textbf{Batch mixing (+5.1\%)}: MNN-validated cross-batch edges are more biologically meaningful than brute-force all-vs-all connections. The mutuality-aware trimming preferentially preserves bidirectional (mutual) edges, which represent genuine cross-batch correspondences. The conservative $0.7\times$ cap on cross-batch edges focuses the budget on high-quality connections.
+
+    \item \textbf{Speed ($\times$4.3)}: Vectorized COO construction via \texttt{np.repeat}/\texttt{reshape} eliminates $O(Nk)$ Python loop iterations. Preallocated numpy arrays for Annoy queries reduce allocation overhead. The batch-aware kernel replaces UMAP's internal \texttt{fuzzy\_simplicial\_set} computation (which involves iterative optimization of local scales) with a direct self-tuning kernel that computes weights in a single vectorized pass.
+\end{itemize}
+\end{tcolorbox}
+
+\end{document}

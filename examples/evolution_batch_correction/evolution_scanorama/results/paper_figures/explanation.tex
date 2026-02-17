@@ -1,0 +1,545 @@
+\documentclass[8pt]{article}
+\usepackage[margin=0.55cm, a4paper]{geometry}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{amsmath, amssymb}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{multicol}
+
+\tcbuselibrary{skins,breakable}
+
+% ── Colors ──────────────────────────────────────────────────────────────
+\definecolor{keychange}{RGB}{41,128,185}
+\definecolor{removed}{RGB}{192,57,43}
+\definecolor{added}{RGB}{39,174,96}
+\definecolor{lightblue}{RGB}{232,244,253}
+\definecolor{lightyellow}{RGB}{253,245,230}
+\definecolor{lightgreen}{RGB}{232,246,232}
+\definecolor{hdrA}{RGB}{52,73,94}
+\definecolor{hdrB}{RGB}{34,139,34}
+
+\algrenewcommand\algorithmicrequire{\textbf{Input:}}
+\algrenewcommand\algorithmicensure{\textbf{Output:}}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{2pt}
+\pagestyle{empty}
+
+% ── Compact step box ─────────────────────────────────────────────────────
+\newtcolorbox{stepbox}[1][]{%
+    colback=white, colframe=black!30, boxrule=0.3pt, arc=1.5pt,
+    left=2pt, right=2pt, top=1pt, bottom=1pt,
+    fontupper=\footnotesize, #1}
+
+\newtcolorbox{keyboxG}[1][]{%
+    colback=lightgreen!40, colframe=added!70, boxrule=0.5pt, arc=1.5pt,
+    left=2pt, right=2pt, top=1pt, bottom=1pt,
+    fontupper=\footnotesize, #1}
+
+\newtcolorbox{warnbox}[1][]{%
+    colback=lightyellow!60, colframe=removed!50, boxrule=0.5pt, arc=1.5pt,
+    left=2pt, right=2pt, top=1pt, bottom=1pt,
+    fontupper=\footnotesize, #1}
+
+% Column width for 2-col portrait layout
+\newlength{\colw}
+
+\begin{document}
+
+% ======================================================================
+%                     PAGE 1 -- FLOW: MNN + Alignment  (PORTRAIT)
+% ======================================================================
+\setlength{\colw}{0.48\textwidth}
+
+\begin{center}
+{\large\bfseries Algorithmic Flow: MNN Detection \& Alignment Scoring}\\[1pt]
+{\scriptsize Two strategies for mutual nearest neighbor detection (\textsc{mnn}), dataset indexing (\textsc{fill\_table}), and alignment scoring}
+\end{center}
+\vspace{2pt}
+
+\noindent
+%% ── Column A: Original ──────────────────────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrA, colframe=hdrA, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering Original Scanorama\\[-2pt]
+{\scriptsize\mdseries Set-based MNN + IntervalTree}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{warnbox}
+\textbf{1. Nearest neighbor search} (\texttt{nn\_approx}):
+\begin{enumerate}[leftmargin=1em, itemsep=0pt, topsep=1pt, parsep=0pt]
+\item \colorbox{lightyellow}{Build new AnnoyIndex every call}
+\item Query each cell; collect indices
+\item \colorbox{lightyellow}{Return Python \texttt{set} of $(a, b_i)$ tuples}
+\end{enumerate}
+{\scriptsize\color{removed} Index rebuilt on each invocation;\\
+set-of-tuples has high Python overhead}
+\end{warnbox}\vspace{1pt}
+
+\begin{warnbox}
+\textbf{2. Mutual nearest neighbors} (\texttt{mnn}):
+\begin{enumerate}[leftmargin=1em, itemsep=0pt, topsep=1pt, parsep=0pt]
+\item $\text{match1} \gets \texttt{nn\_approx}(X_1, X_2)$ {\scriptsize (set)}
+\item $\text{match2} \gets \texttt{nn\_approx}(X_2, X_1)$ {\scriptsize (set)}
+\item \colorbox{lightyellow}{$\text{mutual} \gets \text{match1} \cap \{(b,a) : (a,b) \in \text{match2}\}$}
+\end{enumerate}
+{\scriptsize\color{removed} Python set intersection over $O(Nk)$ tuples}
+\end{warnbox}\vspace{1pt}
+
+\begin{warnbox}
+\textbf{3. Dataset indexing} (\texttt{fill\_table}):
+\begin{enumerate}[leftmargin=1em, itemsep=0pt, topsep=1pt, parsep=0pt]
+\item Build \colorbox{lightyellow}{\texttt{IntervalTree}} for dataset boundaries
+\item For each $(d, r)$ pair: query tree to find\\
+    which dataset $r$ belongs to
+\item Store in per-$(i,j)$ Python set
+\end{enumerate}
+{\scriptsize\color{removed} IntervalTree: $O(N\log N)$ build + query overhead}
+\end{warnbox}\vspace{1pt}
+
+\begin{stepbox}
+\textbf{4. Alignment score:}\\
+$\text{score}(i,j) = \max\!\big(\frac{|\text{unique\_ds}|}{N_i},\, \frac{|\text{unique\_ref}|}{N_j}\big)$\\
+{\scriptsize Coverage-only; no distance/bias quality signal}
+\end{stepbox}
+\end{minipage}%
+\hfill
+%% ── Column B: Optimized ────────────────────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrB, colframe=hdrB, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering scanorama\_optimized\\[-2pt]
+{\scriptsize\mdseries CSR-based MNN + searchsorted}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{1. Nearest neighbor search} (\texttt{nn\_approx}):
+\begin{enumerate}[leftmargin=1em, itemsep=0pt, topsep=1pt, parsep=0pt]
+\item \colorbox{lightgreen}{\texttt{\_annoy\_cache}: reuse built index}\\
+    {\scriptsize Key = (id, data\_ptr, shape, metric, n\_trees)}
+\item Query each cell; collect indices
+\item \colorbox{lightgreen}{Return dense \texttt{numpy} array} (\texttt{return\_ind=True})
+\end{enumerate}
+{\scriptsize\color{added} Annoy index built once, cached;\\
+dense array avoids per-tuple Python overhead}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{2. Mutual nearest neighbors} (\texttt{mnn}):
+\begin{enumerate}[leftmargin=1em, itemsep=0pt, topsep=1pt, parsep=0pt]
+\item $\text{ind12} \gets \texttt{nn\_approx}(X_1, X_2)$ {\scriptsize (array)}
+\item $\text{ind21} \gets \texttt{nn\_approx}(X_2, X_1)$ {\scriptsize (array)}
+\item \colorbox{lightgreen}{Build CSR adjacency $\text{adj21} \in \mathbb{R}^{N_2 \times N_1}$}
+\item \colorbox{lightgreen}{$\text{mask} \gets \text{adj21}[b_\text{flat}, a_\text{rep}]\texttt{.A1}$}
+\end{enumerate}
+{\scriptsize\color{added} Sparse matrix lookup: $O(\text{nnz})$ vs set hash}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{3. Dataset indexing} (\texttt{fill\_table}):
+\begin{enumerate}[leftmargin=1em, itemsep=0pt, topsep=1pt, parsep=0pt]
+\item \colorbox{lightgreen}{\texttt{np.cumsum(sizes)} + \texttt{searchsorted}}
+\item Vectorized $(d, r)$ $\to$ dataset-id mapping
+\item Per-$(i,j)$ set (same downstream compat.)
+\end{enumerate}
+{\scriptsize\color{added} $O(N\log B)$ searchsorted vs $O(N\log N)$ tree}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{4. Alignment score} (enriched):
+\begin{enumerate}[leftmargin=1em, itemsep=0pt, topsep=1pt, parsep=0pt]
+\item Coverage: same as original
+\item \colorbox{lightgreen}{Tightness: $\exp(-\text{med\_dist}/t)$}
+\item \colorbox{lightgreen}{Consistency: $\exp(-\text{bias\_var}/u)$}
+\item $\text{score} = \text{cov} \times \text{tight} \times \text{consist}$
+\end{enumerate}
+{\scriptsize\color{added} Quality-aware edge weights for MSF}
+\end{keyboxG}
+\end{minipage}
+
+% ======================================================================
+%                     PAGE 2 -- FLOW: assemble + batch_bias
+% ======================================================================
+\newpage
+\setlength{\colw}{0.48\textwidth}
+
+\begin{center}
+{\large\bfseries Algorithmic Flow: Batch Correction Assembly (\textsc{assemble})}\\[1pt]
+{\scriptsize Two strategies for merging datasets: pairwise panorama merging vs.\ global symmetric iterative optimization}
+\end{center}
+\vspace{2pt}
+
+\noindent
+%% ── Column A: Original ──────────────────────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrA, colframe=hdrA, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering Original Scanorama\\[-2pt]
+{\scriptsize\mdseries Greedy pairwise panorama merge}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{stepbox}
+\textbf{1.} Find alignments; sort by score (coverage)
+\end{stepbox}\vspace{1pt}
+
+\begin{warnbox}
+\textbf{2. For each alignment} $(i, j)$:
+\begin{enumerate}[leftmargin=1em, itemsep=0pt, topsep=1pt, parsep=0pt]
+\item Find panorama membership of $i$, $j$
+\item \colorbox{lightyellow}{If $i$ not in panorama: correct $i$ $\to$ pan($j$)}
+\item \colorbox{lightyellow}{If $j$ not in panorama: correct $j$ $\to$ pan($i$)}
+\item \colorbox{lightyellow}{If both in panoramas: correct pan($i$) $\to$ pan($j$)}
+\item Merge panoramas
+\end{enumerate}
+{\scriptsize\color{removed} Sequential, order-dependent;\\
+each pair corrected independently}
+\end{warnbox}\vspace{1pt}
+
+\begin{warnbox}
+\textbf{3. Correction} (\texttt{transform} $\to$ \texttt{batch\_bias}):
+\begin{enumerate}[leftmargin=1em, itemsep=0pt, topsep=1pt, parsep=0pt]
+\item $\text{bias} \gets X_\text{ref}[\text{matched}] - X_\text{ds}[\text{matched}]$
+\item \colorbox{lightyellow}{$W \gets \texttt{rbf\_kernel}(X_\text{all}, X_\text{matched})$}\\
+    {\scriptsize Full $N \times M$ dense kernel matrix}
+\item $W \gets \texttt{normalize}(W, \texttt{l1})$
+\item $X_\text{ds} \gets X_\text{ds} + W \cdot \text{bias}$
+\end{enumerate}
+{\scriptsize\color{removed} Dense $O(NM)$ RBF; no robust weighting;\\
+no control for overcorrection}
+\end{warnbox}\vspace{1pt}
+
+\begin{stepbox}
+\textbf{4. Expression correction:}\\
+Same \texttt{transform} on expression matrices;\\
+dense RBF on full gene-expression space
+\end{stepbox}
+
+\vspace{4pt}
+\begin{center}
+{\scriptsize\color{black!50} Greedy order $\to$ inconsistent corrections;\\
+dense kernel $\to$ memory-heavy;\\
+no global optimization}
+\end{center}
+\end{minipage}%
+\hfill
+%% ── Column B: Optimized ────────────────────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrB, colframe=hdrB, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering scanorama\_optimized\\[-2pt]
+{\scriptsize\mdseries MSF + global iterative optimization}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{1. Maximum Spanning Forest (MSF):}
+\begin{enumerate}[leftmargin=1em, itemsep=0pt, topsep=1pt, parsep=0pt]
+\item Sort edges by quality-aware score $\downarrow$
+\item \colorbox{lightgreen}{Union-Find: add edge if it connects\\
+    two disjoint components}
+\item Result: tree of $D{-}1$ edges (no cycles)
+\end{enumerate}
+{\scriptsize\color{added} Avoids conflicting correction paths}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{2. Precompute edge cache:}\\
+For each MSF edge $(d, e)$:
+\begin{enumerate}[leftmargin=1em, itemsep=0pt, topsep=1pt, parsep=0pt]
+\item Anchor points: $A_d = X_0[d][\text{matched}]$
+\item \colorbox{lightgreen}{Precompute kNN: all cells $\to$ anchors}
+\item \colorbox{lightgreen}{Gaussian weights $g = e^{-d^2/2\sigma^2}$}
+\item \colorbox{lightgreen}{CSR sparsity pattern for smoother $S$}
+\end{enumerate}
+{\scriptsize\color{added} Avoids recomputation across iterations}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{3. Global iterative optimization} ($T{=}5$):
+\begin{enumerate}[leftmargin=1em, itemsep=0pt, topsep=1pt, parsep=0pt]
+\item $X_\text{corr} \gets X_0 + f$ \quad {\scriptsize (apply current field)}
+\item For each MSF edge $(d,e)$:
+\begin{enumerate}[leftmargin=0.5em, itemsep=0pt, topsep=0pt]
+\item[\textbullet] Symmetric residuals: $R_d, R_e$
+\item[\textbullet] \colorbox{lightgreen}{Huber weights from median $\|R\|$}
+\item[\textbullet] Smooth via \texttt{batch\_bias} (CSR path)
+\item[\textbullet] \colorbox{lightgreen}{Clip at 95th percentile}
+\end{enumerate}
+\item \colorbox{lightgreen}{$f_d \gets (1{-}\eta\lambda)f_d + \eta \cdot \text{step}$}\\
+    {\scriptsize $\eta{=}0.5$, $\lambda{=}0.05$ (L2 shrink)}
+\item \colorbox{lightgreen}{Laplacian smooth: $f_d \gets (1{-}\mu)f_d + \mu \bar{f}_\text{nbr}$}\\
+    {\scriptsize $\mu{=}0.10$; preserves local structure}
+\end{enumerate}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{4. Expression correction:}\\
+Single pass on matched anchors only;\\
+sparse multiply (no dense \texttt{toarray})
+\end{keyboxG}
+\end{minipage}
+
+% ======================================================================
+%              PAGE 3-4 -- PSEUDOCODE
+% ======================================================================
+\newpage
+
+\begin{center}
+{\large\bfseries Detailed Pseudocode Comparison}\\[3pt]
+{\normalsize Algorithmic differences in MNN detection (\textsc{mnn}) and batch correction assembly (\textsc{assemble})}
+\end{center}
+\vspace{4pt}
+
+{\large\bfseries 1. Mutual Nearest Neighbor Detection (\textsc{mnn})}
+
+\vspace{3pt}
+
+\begin{tcolorbox}[
+    title={\textbf{Algorithm 1a:} Original Scanorama --- Set-based MNN with IntervalTree},
+    colback=white, colframe=black!60, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=4pt, right=4pt, top=2pt, bottom=2pt
+]
+\begin{algorithmic}[1]
+\small
+\Require Datasets $X_1 \in \mathbb{R}^{N_1 \times d}$, $X_2 \in \mathbb{R}^{N_2 \times d}$, $k$ neighbors
+\Ensure Set of mutual nearest neighbor pairs $\{(a, b)\}$
+\State \colorbox{lightyellow}{\textbf{Build} AnnoyIndex on $X_2$} (rebuilt every call) \Comment{\textcolor{removed}{No caching}}
+\For{$i = 1, \ldots, N_1$}
+    \State Query $k$ nearest neighbors of $X_1[i]$ in $X_2$
+    \For{each neighbor $b_j$}
+        \State $\text{match1}.\textsc{add}((i, b_j))$ \Comment{Python set of tuples}
+    \EndFor
+\EndFor
+\State \colorbox{lightyellow}{Repeat: build AnnoyIndex on $X_1$, query $X_2$ $\to$ $\text{match2}$}
+\State \colorbox{lightyellow}{$\text{mutual} \gets \text{match1} \cap \{(b, a) : (a, b) \in \text{match2}\}$} \Comment{\textcolor{removed}{Set intersection over $O(Nk)$ tuples}}
+\State \textbf{Dataset indexing:} Build \texttt{IntervalTree} for dataset boundaries; query per $(d, r)$ pair
+\end{algorithmic}
+\end{tcolorbox}
+
+\vspace{4pt}
+
+\begin{tcolorbox}[
+    title={\textbf{Algorithm 1b:} scanorama\_optimized --- CSR-based MNN with Annoy Caching},
+    colback=lightgreen!20, colframe=added!80, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=4pt, right=4pt, top=2pt, bottom=2pt
+]
+\begin{algorithmic}[1]
+\small
+\Require Datasets $X_1 \in \mathbb{R}^{N_1 \times d}$, $X_2 \in \mathbb{R}^{N_2 \times d}$, $k$ neighbors
+\Ensure Set of mutual nearest neighbor pairs $\{(a, b)\}$
+\State \colorbox{lightgreen}{\textbf{Lookup} AnnoyIndex in \texttt{\_annoy\_cache}; build only if miss} \Comment{\textcolor{added}{Index reuse}}
+\State $\text{ind12} \gets \textsc{QueryAll}(X_1, X_2, k)$ \Comment{Dense $N_1 \times k$ array}
+\State $\text{ind21} \gets \textsc{QueryAll}(X_2, X_1, k)$ \Comment{Dense $N_2 \times k$ array}
+\State \colorbox{lightgreen}{Build CSR adjacency: $\text{adj21} \in \{0,1\}^{N_2 \times N_1}$} from $\text{ind21}$ \Comment{\textcolor{added}{Sparse membership}}
+\State $a_\text{rep} \gets \texttt{np.repeat}(\texttt{arange}(N_1), k)$; \quad $b_\text{flat} \gets \text{ind12}.\texttt{reshape}(-1)$
+\State \colorbox{lightgreen}{$\text{mask} \gets \text{adj21}[b_\text{flat},\; a_\text{rep}]\texttt{.A1.astype(bool)}$} \Comment{\textcolor{added}{Vectorized mutual test}}
+\State $\text{mutual} \gets \{(a_\text{rep}[m],\; b_\text{flat}[m]) : m \in \text{mask}\}$
+\State \textbf{Dataset indexing:} \colorbox{lightgreen}{\texttt{np.searchsorted}(\texttt{cumsum(sizes)}, $r$)} \Comment{\textcolor{added}{Replaces IntervalTree}}
+\end{algorithmic}
+\end{tcolorbox}
+
+\vspace{6pt}
+
+{\large\bfseries 2. Batch Correction Assembly (\textsc{assemble})}
+
+\vspace{3pt}
+
+\begin{tcolorbox}[
+    title={\textbf{Algorithm 2a:} Original Scanorama --- Greedy Pairwise Panorama Merging},
+    colback=white, colframe=black!60, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=4pt, right=4pt, top=2pt, bottom=2pt
+]
+\begin{algorithmic}[1]
+\small
+\Require Datasets $\{X_d\}_{d=1}^D$, alignments sorted by coverage, MNN matches
+\Ensure Corrected datasets
+\For{each alignment $(i, j)$ in descending score order}
+    \State Determine panorama membership; collect MNN pairs $(a, b)$
+    \State \colorbox{lightyellow}{$\text{bias} \gets X_\text{ref}[\text{ref\_ind}] - X_\text{ds}[\text{ds\_ind}]$} \Comment{Raw correction vectors}
+    \State \colorbox{lightyellow}{$W \gets \textsc{RBF\_Kernel}(X_\text{all}, X_\text{matched}, \gamma = \sigma/2)$} \Comment{\textcolor{removed}{Dense $N \times M$ matrix}}
+    \State $W \gets W \,/\, \sum_j W$ \Comment{L1-normalize rows}
+    \State $X_\text{ds} \gets X_\text{ds} + W \cdot \text{bias}$ \Comment{Apply smoothed correction}
+    \State Merge panoramas
+\EndFor
+\end{algorithmic}
+\end{tcolorbox}
+
+\newpage
+
+\begin{tcolorbox}[
+    title={\textbf{Algorithm 2b:} scanorama\_optimized --- MSF + Global Symmetric Iterative Optimization},
+    colback=lightgreen!20, colframe=added!80, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=4pt, right=4pt, top=2pt, bottom=2pt
+]
+\begin{algorithmic}[1]
+\small
+\Require Datasets $\{X_d\}_{d=1}^D$, MNN matches, edge scores
+\Ensure Corrected datasets
+\State \textbf{--- Phase 1: Maximum Spanning Forest ---}
+\State Sort edges by score (coverage $\times$ tightness $\times$ consistency) descending
+\State \colorbox{lightgreen}{\textbf{Union-Find MSF:} greedily add edges connecting disjoint components} \Comment{\textcolor{added}{No redundant paths}}
+\State \textbf{--- Phase 2: Precompute edge cache ---}
+\For{each MSF edge $(d, e)$}
+    \State $A_d \gets X_0[d][\text{ds\_ind}]$; \quad $A_e \gets X_0[e][\text{ref\_ind}]$ \Comment{Anchor points}
+    \State \colorbox{lightgreen}{Fit kNN on anchors; query all cells $\to$ neighbor indices + distances}
+    \State \colorbox{lightgreen}{$g \gets \exp(-d^2 / (2\sigma_i^2))$} where $\sigma_i = \text{median}(d_i)$ \Comment{\textcolor{added}{Precomputed Gaussian}}
+    \State \colorbox{lightgreen}{Build CSR pattern: $S \in \mathbb{R}^{N_d \times M}$ (indices, indptr cached)}
+\EndFor
+\State \textbf{--- Phase 3: Global iterative optimization ---}
+\State Initialize correction fields $f_d \gets \mathbf{0}$ for each dataset $d$
+\For{$t = 1, \ldots, T$} \Comment{$T = 5$ outer iterations}
+    \State $X_\text{corr}^{(d)} \gets X_0^{(d)} + f_d$ for all $d$ \Comment{Current corrected coordinates}
+    \For{each MSF edge $(d, e)$ with weight $w_e$}
+        \State \colorbox{lightgreen}{$R_d \gets X_\text{corr}^{(e)}[\text{ref}] - X_\text{corr}^{(d)}[\text{ds}]$} \Comment{\textcolor{added}{Symmetric residuals}}
+        \State $R_e \gets -R_d$
+        \State \colorbox{lightgreen}{$\delta \gets \max(0.25,\; 2 \cdot \text{median}(\|R_d\|))$} \Comment{\textcolor{added}{Adaptive Huber threshold}}
+        \State $w_d^{(\text{rob})} \gets \textsc{HuberWeights}(\|R_d\|^2, \delta)$ \Comment{$w = \min(1, \delta/\|R\|)$}
+        \State \colorbox{lightgreen}{$\text{upd}_d \gets \textsc{BatchBias}(X_0^{(d)}, R_d; \text{weights}=w_d^{(\text{rob})}, \text{CSR cache})$} \Comment{\textcolor{added}{Precomputed kNN + CSR}}
+        \State \colorbox{lightgreen}{Clip: $\|\text{upd}_d\| \gets \min(\|\text{upd}_d\|, \; q_{95}(\|\text{upd}_d\|))$} \Comment{\textcolor{added}{95th percentile cap}}
+        \State $\Delta f_d \mathrel{+}= w_e \cdot \text{upd}_d$; \quad $\Delta f_e \mathrel{+}= w_e \cdot \text{upd}_e$
+    \EndFor
+    \State $\text{step}_d \gets \Delta f_d \,/\, \sum w_e$ for each $d$
+    \State \colorbox{lightgreen}{$f_d \gets (1 - \eta\lambda) \, f_d + \eta \, \text{step}_d$} \Comment{\textcolor{added}{$\eta{=}0.5$ damping, $\lambda{=}0.05$ L2 shrink}}
+    \State \colorbox{lightgreen}{$f_d \gets (1 - \mu) \, f_d + \mu \, \text{mean}(f_d[\text{kNN}])$} \Comment{\textcolor{added}{$\mu{=}0.10$ Laplacian smooth}}
+\EndFor
+\State $X_d \gets X_0^{(d)} + f_d$ for all $d$ \Comment{Apply final corrections}
+\State \textbf{--- Phase 4: Expression-space correction ---}
+\State \colorbox{lightgreen}{Single pass on matched anchors only; sparse multiply} \Comment{\textcolor{added}{No dense toarray}}
+\end{algorithmic}
+\end{tcolorbox}
+
+\newpage
+
+%% =====================================================================
+%%  SUMMARY TABLE + PERFORMANCE + EXPLANATIONS
+%% =====================================================================
+
+{\large\bfseries 3. Summary of Key Algorithmic Differences}
+
+\vspace{3pt}
+
+\renewcommand{\arraystretch}{1.3}
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{@{}p{2.6cm} p{5.5cm} p{6.3cm}@{}}
+\toprule
+\textbf{Component} & \textbf{Original} & \textbf{scanorama\_optimized} \\
+\midrule
+\textbf{MNN detection} &
+    Python set of tuples; set intersection &
+    \textcolor{added}{CSR adjacency matrix; vectorized sparse lookup \texttt{adj21[b,a].A1}} \\
+\addlinespace
+
+\textbf{ANN index} &
+    Rebuilt every call &
+    \textcolor{added}{Cached in \texttt{\_annoy\_cache}; reused across calls} \\
+\addlinespace
+
+\textbf{Dataset indexing} &
+    \texttt{IntervalTree} per \texttt{fill\_table} call &
+    \textcolor{added}{\texttt{np.searchsorted} on prefix sums (vectorized)} \\
+\addlinespace
+
+\textbf{Alignment score} &
+    Coverage only &
+    \textcolor{added}{Coverage $\times$ tightness $\times$ consistency (quality-aware)} \\
+\addlinespace
+
+\textbf{Merge strategy} &
+    Greedy pairwise panorama merging (order-dependent) &
+    \textcolor{added}{Maximum Spanning Forest (MSF) via union-find; cycle-free} \\
+\addlinespace
+
+\textbf{Optimization} &
+    Single-pass pairwise correction &
+    \textcolor{added}{$T{=}5$ global symmetric iterations over all MSF edges simultaneously} \\
+\addlinespace
+
+\textbf{Robust weighting} &
+    None (all anchors weighted equally) &
+    \textcolor{added}{Huber IRLS: adaptive $\delta$ from median $\|R\|$; downweights outliers} \\
+\addlinespace
+
+\textbf{Correction control} &
+    None &
+    \textcolor{added}{Update clipping (95th pctile), damping $\eta{=}0.5$, L2 shrink $\lambda{=}0.05$} \\
+\addlinespace
+
+\textbf{Structure preservation} &
+    None &
+    \textcolor{added}{Laplacian smoothing ($\mu{=}0.10$) on correction field via kNN graph} \\
+\addlinespace
+
+\textbf{Correction smoothing} &
+    Dense RBF kernel ($N \times M$) &
+    \textcolor{added}{Precomputed kNN + Gaussian weights + CSR smoother} \\
+\addlinespace
+
+\textbf{Expression correction} &
+    Full dense correction via \texttt{transform} &
+    \textcolor{added}{Single pass on matched anchors only; sparse multiply} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\vspace{6pt}
+
+{\large\bfseries 4. Performance Comparison}
+
+\vspace{3pt}
+
+\renewcommand{\arraystretch}{1.25}
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{@{}l c c c@{}}
+\toprule
+\textbf{Metric} & \textbf{Original} & \textbf{scanorama\_optimized} & \textbf{$\Delta$} \\
+\midrule
+Batch mixing score & 0.5440 & \textbf{0.7542} & +38.6\% \\
+Bio conservation score & 0.6736 & \textbf{0.7313} & +8.6\% \\
+Speed score & 0.6579 & \textbf{0.7555} & +14.8\% \\
+Execution time & 0.520s & \textbf{0.324s} & $\times$1.6 \\
+\addlinespace
+Evolution generation & 0 & 6 & --- \\
+Evolution order & 0 & 235 & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\vspace{6pt}
+
+{\large\bfseries 5. Why scanorama\_optimized Improved}
+
+\vspace{3pt}
+
+\begin{tcolorbox}[
+    title={\textbf{scanorama\_optimized}: Comprehensive improvement via global optimization + robust weighting},
+    colback=lightgreen!10, colframe=added!60, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=6pt, right=6pt, top=3pt, bottom=3pt
+]
+\small
+\begin{itemize}[leftmargin=1em, itemsep=3pt]
+    \item \textbf{Batch mixing (+38.6\%)}: The original greedy pairwise merging applies corrections sequentially, which can create inconsistent corrections when datasets are corrected toward different references. The MSF-based global optimization corrects \emph{all} datasets simultaneously over $T{=}5$ iterations with symmetric residuals ($R_d = X_e - X_d$ and $R_e = X_d - X_e$), ensuring consistent convergence. The quality-aware alignment scores (coverage $\times$ tightness $\times$ consistency) select more reliable MNN edges as the MSF backbone.
+
+    \item \textbf{Bio conservation (+8.6\%)}: Multiple mechanisms prevent overcorrection:
+    \begin{itemize}[leftmargin=1em, itemsep=1pt]
+        \item \textbf{Huber IRLS weights} downweight outlier MNN pairs (adaptive $\delta$ from median $\|R\|$), preventing false matches from distorting corrections.
+        \item \textbf{Update clipping} at the 95th percentile prevents extreme per-cell corrections.
+        \item \textbf{Laplacian smoothing} ($\mu{=}0.10$) on the correction field via precomputed kNN graphs preserves within-dataset neighborhood structure.
+        \item \textbf{L2 shrinkage} ($\lambda{=}0.05$) and \textbf{damping} ($\eta{=}0.5$) prevent oscillation and limit correction magnitude.
+    \end{itemize}
+
+    \item \textbf{Speed ($\times$1.6)}: Annoy index caching eliminates redundant index construction. CSR-based MNN detection replaces Python set operations with vectorized sparse matrix lookups. \texttt{searchsorted} replaces IntervalTree for dataset boundary queries. Precomputed per-edge kNN, Gaussian weights, and CSR sparsity patterns avoid recomputation across the 5 iterations. Expression-space correction operates on anchors only (sparse multiply) rather than converting full matrices to dense.
+\end{itemize}
+\end{tcolorbox}
+
+\end{document}

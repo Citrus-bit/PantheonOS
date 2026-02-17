@@ -1,0 +1,661 @@
+\documentclass[8pt]{article}
+\usepackage[margin=0.55cm, a4paper]{geometry}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{amsmath, amssymb}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{multicol}
+
+\tcbuselibrary{skins,breakable}
+
+% ── Colors ──────────────────────────────────────────────────────────────
+\definecolor{keychange}{RGB}{41,128,185}
+\definecolor{removed}{RGB}{192,57,43}
+\definecolor{added}{RGB}{39,174,96}
+\definecolor{lightblue}{RGB}{232,244,253}
+\definecolor{lightyellow}{RGB}{253,245,230}
+\definecolor{lightgreen}{RGB}{232,246,232}
+\definecolor{hdrA}{RGB}{52,73,94}
+\definecolor{hdrB}{RGB}{34,139,34}
+\definecolor{hdrC}{RGB}{41,128,185}
+
+\algrenewcommand\algorithmicrequire{\textbf{Input:}}
+\algrenewcommand\algorithmicensure{\textbf{Output:}}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{2pt}
+\pagestyle{empty}
+
+% ── Compact step box ─────────────────────────────────────────────────────
+\newtcolorbox{stepbox}[1][]{%
+    colback=white, colframe=black!30, boxrule=0.3pt, arc=1.5pt,
+    left=2pt, right=2pt, top=1pt, bottom=1pt,
+    fontupper=\footnotesize, #1}
+
+\newtcolorbox{keyboxG}[1][]{%
+    colback=lightgreen!40, colframe=added!70, boxrule=0.5pt, arc=1.5pt,
+    left=2pt, right=2pt, top=1pt, bottom=1pt,
+    fontupper=\footnotesize, #1}
+
+\newtcolorbox{keyboxB}[1][]{%
+    colback=lightblue!40, colframe=keychange!70, boxrule=0.5pt, arc=1.5pt,
+    left=2pt, right=2pt, top=1pt, bottom=1pt,
+    fontupper=\footnotesize, #1}
+
+\newtcolorbox{warnbox}[1][]{%
+    colback=lightyellow!60, colframe=removed!50, boxrule=0.5pt, arc=1.5pt,
+    left=2pt, right=2pt, top=1pt, bottom=1pt,
+    fontupper=\footnotesize, #1}
+
+% Column width for 3-col portrait layout
+\newlength{\colw}
+
+\begin{document}
+
+% ======================================================================
+%                     PAGE 1 -- FLOW: update_R  (PORTRAIT)
+% ======================================================================
+\setlength{\colw}{0.32\textwidth}
+
+\begin{center}
+{\large\bfseries Algorithmic Flow: Soft Cluster Assignment (\textsc{update\_R})}\\[1pt]
+{\scriptsize Three evolved strategies for batch-balanced cell--cluster responsibility assignment}
+\end{center}
+\vspace{2pt}
+
+\noindent
+%% ── Column A: Original ──────────────────────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrA, colframe=hdrA, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering Original Harmony\\[-2pt]
+{\scriptsize\mdseries Block-wise heuristic}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{stepbox}
+\textbf{1.} Soft k-means base:\\
+$S_{ki}\!=\!\exp(-D_{ki}/\sigma_k)$;\ $S \!\gets\! S/\!\sum_k\!S$
+\end{stepbox}\vspace{1pt}
+
+\begin{stepbox}
+\textbf{2.} Random shuffle cells:\\
+$\pi \gets \textsc{RandPerm}(N)$
+\end{stepbox}\vspace{1pt}
+
+\begin{stepbox}
+\textbf{3.} Split into ${\sim}20$ blocks\\
+(block\_size $= 5\%$ of $N$)
+\end{stepbox}\vspace{1pt}
+
+\begin{warnbox}
+\textbf{4. For each block} $\mathcal{B}$:
+\begin{enumerate}[leftmargin=1em, itemsep=0pt, topsep=1pt, parsep=0pt]
+\item Remove block from $O$, $E$
+\item \colorbox{lightyellow}{$\text{ratio}\!=\!(E/(O\!+\!E))^{\theta}$}\\
+    {\scriptsize\color{removed} Heuristic penalty}
+\item $R_\mathcal{B}\!=\!S_\mathcal{B}\!\odot\!(\text{ratio}\!\cdot\!\Phi_\mathcal{B})$
+\item Normalize per cell
+\item Add block back to $O$, $E$
+\end{enumerate}
+\end{warnbox}\vspace{1pt}
+
+\begin{stepbox}
+\textbf{5.} Restore order via $\pi^{-1}$
+\end{stepbox}
+
+\vspace{4pt}
+\begin{center}
+{\scriptsize\color{black!50} Sequential block updates;\\
+order-dependent results}
+\end{center}
+\end{minipage}%
+\hfill
+%% ── Column B: harmony_272 (IPF) ────────────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrB, colframe=hdrB, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering harmony\_272 (IPF)\\[-2pt]
+{\scriptsize\mdseries Iterative Proportional Fitting}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{1.} Stable softmax base:\\
+$R\!=\!\textsc{Softmax}(-D/\sigma,\text{dim}\!=\!0)$\\
+{\scriptsize\color{added} No block shuffle; global op}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{2.} Anneal mixing $\rho$:\\
+$\rho\!=\!(1\!-\!t)\rho_\text{start}+t\,\rho_\text{end}$\\
+{\scriptsize High early $\to$ low later}
+\end{keyboxG}\vspace{1pt}
+
+\begin{stepbox}
+\textbf{3.} Adaptive IPF iterations:\\
+$\Delta R\!>\!0.15\!\Rightarrow$ fewer iters\\
+$\Delta R\!<\!0.05\!\Rightarrow$ more iters
+\end{stepbox}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{4. For} $j=1\ldots n_\text{ipf}$:
+\begin{enumerate}[leftmargin=1em, itemsep=0pt, topsep=1pt, parsep=0pt]
+\item $O\!=\!R\Phi^\top$;\ $E\!=\!\text{outer}(\sum R,\Pr_b)$
+\item \colorbox{lightgreen}{$T\!=\!(1\!-\!\rho)O+\rho E$}\\
+    {\scriptsize\color{added} Soft batch-balance target}
+\item $S\!=\!T/O$;\ $G\!=\!S\Phi$ {\scriptsize (scales)}
+\item $R\!\gets\!R\!\odot\!G$; renormalize\\
+    {\scriptsize (in-place, pre-allocated buf)}
+\end{enumerate}
+\end{keyboxG}\vspace{1pt}
+
+\begin{stepbox}
+\textbf{5.} Update $O$, $E$ from final $R$
+\end{stepbox}
+\end{minipage}%
+\hfill
+%% ── Column C: harmony_best_mixing (OT) ─────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrC, colframe=hdrC, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering harmony\_best\_mixing (OT)\\[-2pt]
+{\scriptsize\mdseries Entropic Optimal Transport}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{keyboxB}
+\textbf{1.} Anneal regularization:\\
+$\varepsilon\!=\!\varepsilon_\text{max}+(\varepsilon_\text{min}\!-\!\varepsilon_\text{max})t$\\
+{\scriptsize Smooth early $\to$ sharp later}
+\end{keyboxB}\vspace{1pt}
+
+\begin{stepbox}
+\textbf{2.} Diversity penalty:\\
+$\theta_\text{log}\!=\!\theta\!\cdot\!\log(1+O/E)$
+\end{stepbox}\vspace{1pt}
+
+\begin{keyboxB}
+\textbf{3. For each batch} $b$:\\
+Cost $C\!=\!D_{:,\mathcal{I}_b}/\sigma$\\
+Supply $a\!=\!E_{:,b}$ {\scriptsize (cluster mass)}\\
+Demand $u\!=\!\mathbf{1}$ {\scriptsize (uniform)}
+\end{keyboxB}\vspace{1pt}
+
+\begin{keyboxB}
+\textbf{4. Sinkhorn} (warm-start):
+\begin{enumerate}[leftmargin=1em, itemsep=0pt, topsep=1pt, parsep=0pt]
+\item $\log K\!=\!-C/\varepsilon$
+\item \textbf{For} $\ell=1\ldots L_\text{max}$:\\
+    \colorbox{lightblue}{\scriptsize $\log\mathbf{u}\!\gets\!\log a - \text{LSE}(\log K\!+\!\log\mathbf{v}^\top)$}\\
+    \colorbox{lightblue}{\scriptsize $\log\mathbf{v}\!\gets\!\log u - \text{LSE}(\log K^\top\!\!+\!\log\mathbf{u})$}\\
+    {\scriptsize\color{keychange} Hard OT constraint}
+\item If converged: \textbf{break}
+\end{enumerate}
+\end{keyboxB}\vspace{1pt}
+
+\begin{stepbox}
+\textbf{5.} $P\!=\!\exp(\log\mathbf{u}\!+\!\log K\!+\!\log\mathbf{v}^\top)$\\
+$R_{:,\mathcal{I}_b}\!\gets\!P$; update $O$, $E$
+\end{stepbox}
+\end{minipage}
+
+% ======================================================================
+%                     PAGE 2 -- FLOW: moe_correct_ridge  (PORTRAIT)
+% ======================================================================
+\newpage
+\setlength{\colw}{0.32\textwidth}
+
+\begin{center}
+{\large\bfseries Algorithmic Flow: Batch Correction (\textsc{moe\_correct\_ridge})}\\[1pt]
+{\scriptsize Three evolved strategies for ridge-regression-based batch effect removal}
+\end{center}
+\vspace{2pt}
+
+\noindent
+%% ── Column A: Original ──────────────────────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrA, colframe=hdrA, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering Original Harmony\\[-2pt]
+{\scriptsize\mdseries Per-cluster matrix inverse}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{stepbox}
+\textbf{1.} Clone original data:\\
+$Z_\text{corr} \gets Z_\text{orig}.\text{clone}()$
+\end{stepbox}\vspace{1pt}
+
+\begin{warnbox}
+\textbf{2. For} $k=1\ldots K$:
+\begin{enumerate}[leftmargin=1em, itemsep=0pt, topsep=1pt, parsep=0pt]
+\item $\Phi_{Rk}\!=\!\Phi_\text{moe}\!\odot\!R[k,:]$
+\item \colorbox{lightyellow}{$\text{Cov}\!=\!\Phi_{Rk}\Phi_\text{moe}^\top\!+\!\text{diag}(\lambda)$}
+\item \colorbox{lightyellow}{$\text{Cov}^{-1}\!=\!\textsc{Inv}(\text{Cov})$}\\
+    {\scriptsize\color{removed} Full inverse $\times K$ clusters}
+\item $W\!=\!\sum_b \text{Cov}^{-1}_{:,b}(\sum_{i\in b} R_{k,i}Z_i)^\top$
+\item $W[0,:]\!=\!0$ {\scriptsize (keep intercept)}
+\item $Z_\text{corr} \mathrel{-}\!=\! W^\top \Phi_{Rk}$
+\end{enumerate}
+\end{warnbox}\vspace{1pt}
+
+\begin{stepbox}
+\textbf{3.} Cosine embedding:\\
+$Z_\text{cos}\!=\!Z_\text{corr}/\|Z_\text{corr}\|_2$
+\end{stepbox}
+
+\vspace{4pt}
+\begin{center}
+{\scriptsize\color{black!50} No correction control ---\\
+full correction applied directly.\\
+No regularization beyond $\lambda$.}
+\end{center}
+\end{minipage}%
+\hfill
+%% ── Column B: harmony_272 ──────────────────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrB, colframe=hdrB, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering harmony\_272 (IPF)\\[-2pt]
+{\scriptsize\mdseries Cholesky + trust-region}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{1.} Sufficient statistics $S_{\Phi Z}$\\
+via contiguous batch GEMMs\\
+{\scriptsize (exploit one-hot $\Phi$, pre-sorted)}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{2.} Assemble $A\!\in\!\mathbb{R}^{K\times(B{+}1)\times(B{+}1)}$\\
+\colorbox{lightgreen}{$L\!=\!\textsc{BatchCholesky}(A)$}\\
+\colorbox{lightgreen}{$W\!=\!\textsc{CholSolve}(S_{\Phi Z},L)$}\\
+{\scriptsize\color{added} Single batched solve}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{3.} Tie-to-mean regularization:\\
+$W\!\gets\!(W\!+\!\gamma\bar{W})/(1\!+\!\gamma)$\\
+{\scriptsize $\gamma$ adaptive per cluster; $W[:,0,:]\!=\!0$}
+\end{keyboxG}\vspace{1pt}
+
+\begin{stepbox}
+\textbf{4.} Correction via per-batch GEMMs:\\
+$\text{corr}_{:,\mathcal{I}_b}\!=\!W_{:,b+1}^\top R_{:,\mathcal{I}_b}$
+\end{stepbox}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{5. Trust-region backtracking:}
+\begin{enumerate}[leftmargin=1em, itemsep=0pt, topsep=1pt, parsep=0pt]
+\item $\eta\!\gets\!\eta_\text{init}$
+\item $Z_\text{cand}\!=\!Z_\text{orig}-\eta\!\cdot\!\text{corr}$
+\item Eval: obj$_\text{new}$, $R_\text{cand}$, $\Delta R$
+\item \colorbox{lightgreen}{\scriptsize Accept if obj$_\text{new}\!\leq\!$obj$_\text{old}$ \textbf{and} $\|\Delta R\|\!\leq\!\delta$}\\
+    {\scriptsize\color{added} Prevents overcorrection}
+\item Else $\eta\!\gets\!\eta/2$; up to 4$\times$
+\end{enumerate}
+\end{keyboxG}\vspace{1pt}
+
+\begin{stepbox}
+\textbf{6.} Commit or fallback to $\eta_\text{min}$
+\end{stepbox}
+\end{minipage}%
+\hfill
+%% ── Column C: harmony_best_mixing ───────────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrC, colframe=hdrC, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering harmony\_best\_mixing (OT)\\[-2pt]
+{\scriptsize\mdseries Schur complement + trust region}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{stepbox}
+\textbf{1.} Compute $S_{\Phi Z}$ via\\
+pre-permuted batch-slice GEMMs
+\end{stepbox}\vspace{1pt}
+
+\begin{keyboxB}
+\textbf{2. Schur complement solve}\\
+{\scriptsize (no inverse/Cholesky needed):}\\
+$D_\text{inv}\!=\!1/(O\!+\!\lambda_\text{batch})$ {\scriptsize (diag)}\\
+$s_\text{schur}\!=\!s_k-\sum_b o_{kb}^2 D_\text{inv}$\\
+$w_0\!=\!\text{rhs}_0/s_\text{schur}$\\
+$w_b\!=\!D_\text{inv}(b_b-o_b w_0)$\\
+{\scriptsize\color{keychange} Closed-form; $O(KB)$ vs $O(KB^3)$}
+\end{keyboxB}\vspace{1pt}
+
+\begin{keyboxB}
+\textbf{3.} Cluster-adaptive shrinkage:\\
+$\gamma_k\!=\!\gamma_0\bar{s}/s_k$\\
+$W\!\gets\!(W\!+\!\gamma_k\bar{W})/(1\!+\!\gamma_k)$\\
+{\scriptsize Stronger for smaller clusters}
+\end{keyboxB}\vspace{1pt}
+
+\begin{stepbox}
+\textbf{4.} Correction via per-batch-slice\\
+GEMMs (contiguous memory)
+\end{stepbox}\vspace{1pt}
+
+\begin{keyboxB}
+\textbf{5. Per-cell trust region:}\\
+$\rho\!=\!\rho_\text{min}+(\rho_\text{max}\!-\!\rho_\text{min})t$\\
+\colorbox{lightblue}{\scriptsize If $\|\text{corr}_i\|>\rho\|Z_i\|$: rescale to boundary}\\
+{\scriptsize\color{keychange} Per-cell overcorrection guard;\\
+$\rho$ anneals: conservative $\to$ permissive}
+\end{keyboxB}\vspace{1pt}
+
+\begin{stepbox}
+\textbf{6.} $Z_\text{corr}\!=\!Z_\text{orig}-\text{corr}$\\
+$Z_\text{cos}\!=\!Z_\text{corr}/\|Z_\text{corr}\|_2$
+\end{stepbox}
+\end{minipage}
+
+% ======================================================================
+%              PAGE 3-4 -- PSEUDOCODE: update_R
+% ======================================================================
+\newpage
+
+\begin{center}
+{\large\bfseries Detailed Pseudocode Comparison}\\[3pt]
+{\normalsize Algorithmic differences in soft assignment (\textsc{update\_R}) and batch correction (\textsc{moe\_correct\_ridge})}
+\end{center}
+\vspace{4pt}
+
+{\large\bfseries 1. Soft Cluster Assignment (\textsc{update\_R})}
+
+\vspace{3pt}
+
+\begin{tcolorbox}[
+    title={\textbf{Algorithm 1a:} Original Harmony --- Block-wise Heuristic Update},
+    colback=white, colframe=black!60, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=4pt, right=4pt, top=2pt, bottom=2pt
+]
+\begin{algorithmic}[1]
+\small
+\Require Distance matrix $D \in \mathbb{R}^{K \times N}$, bandwidth $\sigma \in \mathbb{R}^K$, batch indicator $\Phi \in \{0,1\}^{B \times N}$
+\Ensure Updated responsibility matrix $R \in \mathbb{R}^{K \times N}$
+\State $S_{ki} \gets \exp(-D_{ki} / \sigma_k)$; \quad $S \gets S \,/\, \sum_k S$ \Comment{Soft k-means base}
+\State $\pi \gets \textsc{RandPerm}(N)$ \Comment{Random shuffle}
+\State Split $\{1,\ldots,N\}$ into blocks of size $\lfloor N \cdot \texttt{block\_size} \rfloor$
+\For{each block $\mathcal{B}$}
+    \State $O \gets O - R_{:,\mathcal{B}} \, \Phi_{:,\mathcal{B}}^\top$; \quad $E \gets E - \text{outer}(\sum_\mathcal{B} R, \, \Pr_b)$ \Comment{Remove block}
+    \State \colorbox{lightyellow}{$\text{ratio} \gets \left(\dfrac{E}{O + E}\right)^{\!\theta}$} \Comment{\textcolor{removed}{Heuristic diversity penalty}}
+    \State $R_{:,\mathcal{B}} \gets S_{:,\mathcal{B}} \odot (\text{ratio} \cdot \Phi_{:,\mathcal{B}})$; \quad normalize per cell
+    \State $O \gets O + R_{:,\mathcal{B}} \, \Phi_{:,\mathcal{B}}^\top$; \quad $E \gets E + \text{outer}(\sum_\mathcal{B} R, \, \Pr_b)$ \Comment{Add back}
+\EndFor
+\State Restore original cell order via $\pi^{-1}$
+\end{algorithmic}
+\end{tcolorbox}
+
+\vspace{4pt}
+
+\begin{tcolorbox}[
+    title={\textbf{Algorithm 1b:} harmony\_272 --- Iterative Proportional Fitting (IPF)},
+    colback=lightgreen!20, colframe=added!80, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=4pt, right=4pt, top=2pt, bottom=2pt
+]
+\begin{algorithmic}[1]
+\small
+\Require Distance matrix $D$, bandwidth $\sigma$, batch indicator $\Phi$, Harmony iteration $i/T$
+\Ensure Updated $R$
+\State \colorbox{lightgreen}{$R \gets \textsc{Softmax}(-D / \sigma, \, \text{dim}=0)$} \Comment{\textcolor{added}{Stable softmax (no block shuffle)}}
+\State \colorbox{lightgreen}{$\rho \gets (1 - t) \cdot \rho_{\text{start}} + t \cdot \rho_{\text{end}}$} where $t = (i-1)/(T-1)$ \Comment{\textcolor{added}{Annealing schedule}}
+\State Adapt IPF iterations: $n_{\text{ipf}} \gets f(\|\Delta R\|)$ \Comment{Fewer if unstable, more if stable}
+\For{$j = 1, \ldots, n_{\text{ipf}}$}
+    \State $O \gets R \, \Phi^\top$; \quad $E \gets \text{outer}(\sum_i R, \, \Pr_b)$
+    \State \colorbox{lightgreen}{$T_{\text{target}} \gets (1 - \rho) \cdot O + \rho \cdot E$} \Comment{\textcolor{added}{Soft batch-balance target}}
+    \State $S \gets T_{\text{target}} \,/\, O$; \quad $G \gets S \, \Phi$ \Comment{Per-cell scaling factors}
+    \State $R \gets R \odot G$; \quad $R \gets R \,/\, \sum_k R$ \Comment{Multiplicative reweighting}
+\EndFor
+\State Update $O$, $E$ from final $R$
+\end{algorithmic}
+\end{tcolorbox}
+
+\vspace{4pt}
+
+\begin{tcolorbox}[
+    title={\textbf{Algorithm 1c:} harmony\_best\_mixing --- Per-batch Entropic Optimal Transport (Sinkhorn)},
+    colback=lightblue!20, colframe=keychange!80, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=4pt, right=4pt, top=2pt, bottom=2pt
+]
+\begin{algorithmic}[1]
+\small
+\Require Distance matrix $D$, bandwidth $\sigma$, batch indicator $\Phi$, Harmony iteration $i/T$
+\Ensure Updated $R$
+\State \colorbox{lightblue}{$\varepsilon \gets \varepsilon_{\max} + (\varepsilon_{\min} - \varepsilon_{\max}) \cdot t$} \Comment{\textcolor{keychange}{Entropic regularization annealing}}
+\For{each batch $b = 1, \ldots, B$}
+    \State $C \gets D_{:,\mathcal{I}_b} \,/\, \sigma$ \Comment{Cost matrix for batch $b$ cells}
+    \State \colorbox{lightblue}{$a \gets E_{:,b} \cdot (n_b / \sum E_{:,b})$} \Comment{\textcolor{keychange}{Cluster supply (desired mass)}}
+    \State $u \gets \mathbf{1}_{n_b}$ \Comment{Cell demand (uniform)}
+    \State Initialize $\log \mathbf{u}, \log \mathbf{v}$ from warm-start duals
+    \State $\log K \gets -C / \varepsilon$
+    \For{$\ell = 1, \ldots, L_{\max}$} \Comment{\textcolor{keychange}{Log-domain Sinkhorn iterations}}
+        \State \colorbox{lightblue}{$\log \mathbf{u} \gets \log a - \text{LSE}_{\text{col}}(\log K + \log \mathbf{v}^\top)$}
+        \State \colorbox{lightblue}{$\log \mathbf{v} \gets \log u - \text{LSE}_{\text{row}}(\log K + \log \mathbf{u})$}
+        \If{$\max(|\Delta \log \mathbf{u}|, |\Delta \log \mathbf{v}|) < \tau$} \textbf{break} \EndIf
+    \EndFor
+    \State $P \gets \exp(\log \mathbf{u} + \log K + \log \mathbf{v}^\top)$; \quad normalize columns
+    \State $R_{:,\mathcal{I}_b} \gets P$ \Comment{Assign transport plan to $R$}
+\EndFor
+\State $O \gets \textsc{ScatterAdd}(R, \text{batch\_id})$; \quad $E \gets \text{outer}(\sum R, \, \Pr_b)$
+\end{algorithmic}
+\end{tcolorbox}
+
+\newpage
+
+{\large\bfseries 2. Batch Effect Correction (\textsc{moe\_correct\_ridge})}
+
+\vspace{3pt}
+
+\begin{tcolorbox}[
+    title={\textbf{Algorithm 2a:} Original Harmony --- Per-cluster Matrix Inverse},
+    colback=white, colframe=black!60, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=4pt, right=4pt, top=2pt, bottom=2pt
+]
+\begin{algorithmic}[1]
+\small
+\Require $Z_{\text{orig}} \in \mathbb{R}^{d \times N}$, $R \in \mathbb{R}^{K \times N}$, $\Phi_{\text{moe}} \in \mathbb{R}^{(B+1) \times N}$, $\lambda \in \mathbb{R}^{B+1}$
+\Ensure $Z_{\text{corr}}$, updated $Z_{\text{cos}}$
+\State $Z_{\text{corr}} \gets Z_{\text{orig}}.\textsc{clone}()$
+\For{$k = 1, \ldots, K$}
+    \State $\Phi_{Rk} \gets \Phi_{\text{moe}} \odot R[k,:]$
+    \State \colorbox{lightyellow}{$\text{Cov} \gets \Phi_{Rk} \, \Phi_{\text{moe}}^\top + \text{diag}(\lambda)$}
+    \State \colorbox{lightyellow}{$\text{Cov}^{-1} \gets \textsc{Inv}(\text{Cov})$} \Comment{\textcolor{removed}{Full $(B{+}1) \times (B{+}1)$ inverse per cluster}}
+    \State $W \gets \sum_{b=0}^{B} \text{Cov}^{-1}_{:,b} \cdot \left(\sum_{i \in \text{batch}_b} R_{k,i} \, Z_{:,i}\right)^\top$
+    \State $W[0,:] \gets 0$ \Comment{Keep intercept}
+    \State $Z_{\text{corr}} \gets Z_{\text{corr}} - W^\top \, \Phi_{Rk}$
+\EndFor
+\State $Z_{\text{cos}} \gets Z_{\text{corr}} \,/\, \|Z_{\text{corr}}\|_2$
+\end{algorithmic}
+\end{tcolorbox}
+
+\vspace{4pt}
+
+\begin{tcolorbox}[
+    title={\textbf{Algorithm 2b:} harmony\_272 --- Batched Cholesky + Trust-region Backtracking},
+    colback=lightgreen!20, colframe=added!80, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=4pt, right=4pt, top=2pt, bottom=2pt
+]
+\begin{algorithmic}[1]
+\small
+\Require $Z_{\text{orig}}$, $R$, $\Phi$, batch pointers, Harmony iteration $i/T$
+\Ensure $Z_{\text{corr}}$, updated $Z_{\text{cos}}$, $R$, $O$, $E$
+\State \colorbox{lightgreen}{Compute $S_{\Phi Z}^{(k,b)} \gets \sum_{i \in \text{batch}_b} R_{k,i} \, Z_{:,i}$ via contiguous batch GEMMs}
+\State Assemble $A \in \mathbb{R}^{K \times (B+1) \times (B+1)}$ exploiting one-hot $\Phi$ structure
+\State \colorbox{lightgreen}{$L \gets \textsc{BatchedCholesky}(A)$; \quad $W \gets \textsc{CholeskySolve}(S_{\Phi Z}, L)$} \Comment{\textcolor{added}{Replaces $K$ separate inverses}}
+\State $W[:,0,:] \gets 0$
+\State \colorbox{lightgreen}{$W \gets (W + \gamma \bar{W}) / (1 + \gamma)$} \Comment{\textcolor{added}{Tie-to-mean regularization}}
+\State Compute correction via per-batch GEMMs: $\text{corr}_{:,\mathcal{I}_b} \gets W_{:,b+1}^\top R_{:,\mathcal{I}_b}$
+\State $\eta \gets \eta_{\text{init}}$ \Comment{Step size for line search}
+\For{$j = 1, \ldots, n_{\text{backtrack}}$} \Comment{\textcolor{added}{Trust-region backtracking}}
+    \State $Z_{\text{cand}} \gets Z_{\text{orig}} - \eta \cdot \text{corr}$
+    \State Evaluate candidate: $\text{obj}_{\text{new}}, R_{\text{cand}} \gets \textsc{CandidateEval}(Z_{\text{cand}})$
+    \If{\colorbox{lightgreen}{$\text{obj}_{\text{new}} \leq \text{obj}_{\text{old}}$ \textbf{and} $\|\Delta R\|_1 / N \leq \delta_{\text{thresh}}$}}
+        \State Accept: commit $Z_{\text{corr}}, Z_{\text{cos}}, R, O, E$ \Comment{\textcolor{added}{Objective must improve}}
+        \State \textbf{break}
+    \EndIf
+    \State $\eta \gets \eta / 2$
+\EndFor
+\State If not accepted: apply conservative step with $\eta_{\min}$
+\end{algorithmic}
+\end{tcolorbox}
+
+\vspace{4pt}
+
+\begin{tcolorbox}[
+    title={\textbf{Algorithm 2c:} harmony\_best\_mixing --- Schur Complement Solve + Per-cell Trust Region},
+    colback=lightblue!20, colframe=keychange!80, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=4pt, right=4pt, top=2pt, bottom=2pt
+]
+\begin{algorithmic}[1]
+\small
+\Require $Z_{\text{orig}}$, $R$, batch slices, Harmony iteration $i/T$
+\Ensure $Z_{\text{corr}}$, updated $Z_{\text{cos}}$
+\State Compute $S_{\Phi Z}$ via contiguous batch-slice GEMMs (pre-permuted data)
+\State \colorbox{lightblue}{$D_{\text{inv}} \gets 1 / (O + \lambda_{\text{batch}})$} \Comment{Diagonal inverse of batch block}
+\State \colorbox{lightblue}{$s_{\text{schur}} \gets s_k - \sum_b o_{kb}^2 \cdot D_{\text{inv},kb}$} \Comment{\textcolor{keychange}{Schur complement (no inverse/Cholesky)}}
+\State $w_0 \gets (b_0 - \sum_b o_b \cdot D_{\text{inv},b} \cdot b_b) \,/\, s_{\text{schur}}$
+\State $w_b \gets D_{\text{inv},b} \cdot (b_b - o_b \cdot w_0)$
+\State Pack $W = [w_0; w_1; \ldots; w_B]$; \quad $W[:,0,:] \gets 0$
+\State \colorbox{lightblue}{$\gamma_k \gets \gamma_0 \cdot \bar{s} / s_k$}; \quad $W \gets (W + \gamma_k \bar{W}) / (1 + \gamma_k)$ \Comment{\textcolor{keychange}{Cluster-size-adaptive shrinkage}}
+\State Compute correction via per-batch GEMMs
+\State \colorbox{lightblue}{$\rho \gets \rho_{\min} + (\rho_{\max} - \rho_{\min}) \cdot t$} \Comment{\textcolor{keychange}{Annealed trust radius}}
+\For{each cell $i$}
+    \If{$\|\text{corr}_i\|_2 > \rho \cdot \|Z_i\|_2$} \Comment{\textcolor{keychange}{Per-cell magnitude constraint}}
+        \State $\text{corr}_i \gets \text{corr}_i \cdot \rho \|Z_i\| \,/\, \|\text{corr}_i\|$ \Comment{Rescale to trust boundary}
+    \EndIf
+\EndFor
+\State $Z_{\text{corr}} \gets Z_{\text{orig}} - \text{corr}$; \quad $Z_{\text{cos}} \gets Z_{\text{corr}} / \|Z_{\text{corr}}\|_2$
+\end{algorithmic}
+\end{tcolorbox}
+
+\newpage
+
+%% =====================================================================
+%%  SUMMARY TABLE + PERFORMANCE + EXPLANATIONS
+%% =====================================================================
+
+{\large\bfseries 3. Summary of Key Algorithmic Differences}
+
+\vspace{3pt}
+
+\renewcommand{\arraystretch}{1.3}
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{@{}p{2.3cm} p{3.5cm} p{4.3cm} p{4.3cm}@{}}
+\toprule
+\textbf{Component} & \textbf{Original} & \textbf{harmony\_272 (IPF)} & \textbf{harmony\_best\_mixing (OT)} \\
+\midrule
+\textbf{Assignment strategy} &
+    Block-wise heuristic: $(E/(O{+}E))^\theta$ ratio penalty &
+    \textcolor{added}{Global softmax + IPF multiplicative reweighting toward target $T$} &
+    \textcolor{keychange}{Per-batch entropic OT (Sinkhorn) with warm-started duals} \\
+\addlinespace
+
+\textbf{Batch balance} &
+    Soft penalty via $\theta$-powered ratio &
+    \textcolor{added}{Interpolation target $T = (1{-}\rho)O + \rho E$ with annealed $\rho$} &
+    \textcolor{keychange}{Hard marginal constraint via OT (supply = $E_{:,b}$)} \\
+\addlinespace
+
+\textbf{Ridge solve} &
+    $K$ separate matrix inverses &
+    \textcolor{added}{Single batched Cholesky solve} &
+    \textcolor{keychange}{Closed-form Schur complement (no factorization)} \\
+\addlinespace
+
+\textbf{Correction control} &
+    None (full correction applied directly) &
+    \textcolor{added}{Backtracking line search: requires obj $\downarrow$ and $\|\Delta R\| \leq \delta$} &
+    \textcolor{keychange}{Per-cell trust region: $\|\text{corr}_i\| \leq \rho \|Z_i\|$} \\
+\addlinespace
+
+\textbf{Regularization} &
+    Diagonal ridge $\lambda$ only &
+    \textcolor{added}{Ridge + tie-to-mean ($\gamma$ adaptive per cluster size)} &
+    \textcolor{keychange}{Ridge + tie-to-mean ($\gamma_k \propto \bar{s}/s_k$)} \\
+\addlinespace
+
+\textbf{Annealing} &
+    None &
+    \textcolor{added}{$\rho$: mixing strength decreases over iterations} &
+    \textcolor{keychange}{$\varepsilon$: OT sharpness increases; $\rho$: trust region grows} \\
+\addlinespace
+
+\textbf{Data layout} &
+    Random permutation per call &
+    \textcolor{added}{Pre-sorted by batch; contiguous block pointers} &
+    \textcolor{keychange}{Pre-permuted tensors; batch slices $(s_b, e_b)$} \\
+
+\bottomrule
+\end{tabular}
+\end{table}
+
+\vspace{6pt}
+
+{\large\bfseries 4. Performance Comparison}
+
+\vspace{3pt}
+
+\renewcommand{\arraystretch}{1.25}
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{@{}l c c c c@{}}
+\toprule
+\textbf{Metric} & \textbf{Original} & \textbf{harmony\_272} & \textbf{harmony\_best\_mixing} & \textbf{Best} \\
+\midrule
+Batch mixing score & 0.7094 & 0.7118 {\scriptsize (+0.3\%)} & \textbf{0.7842} {\scriptsize (+10.5\%)} & OT \\
+Bio conservation score & 0.6777 & \textbf{0.7063} {\scriptsize (+4.2\%)} & 0.6464 {\scriptsize (-4.6\%)} & IPF \\
+Speed score & 0.1256 & \textbf{0.8598} {\scriptsize ($\times$6.8)} & 0.0541 {\scriptsize (-56.9\%)} & IPF \\
+Convergence score & \textbf{0.8312} & 0.5527 {\scriptsize (-33.5\%)} & 0.7572 {\scriptsize (-8.9\%)} & Orig \\
+\addlinespace
+Evolution generation & 0 & 6 & 8 & --- \\
+Evolution order & 0 & 272 & 277 & --- \\
+Mutation category & --- & implementation & optimization\_method & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\vspace{6pt}
+
+{\large\bfseries 5. Why Each Variant Improved}
+
+\vspace{3pt}
+
+\begin{tcolorbox}[
+    title={\textbf{harmony\_272}: Balanced improvement via IPF + trust-region},
+    colback=lightgreen!10, colframe=added!60, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=6pt, right=6pt, top=3pt, bottom=3pt
+]
+\small
+\begin{itemize}[leftmargin=1em, itemsep=2pt]
+    \item \textbf{Speed ($\times$6.8)}: Replaced $O(N)$ block-wise random shuffle + sequential block updates with a single global softmax followed by ${\sim}5$ in-place IPF iterations using pre-allocated buffers. Eliminated per-call random permutations and reduced memory allocation overhead.
+    \item \textbf{Bio conservation (+4.2\%)}: Trust-region backtracking prevents overcorrection by requiring both (i) objective decrease and (ii) stable responsibilities ($\|\Delta R\| \leq \delta$) before accepting a correction step. Falls back to conservative step size when criteria are not met.
+    \item \textbf{Mixing (+0.3\%)}: Modest gain from annealed $\rho$ schedule that applies stronger batch-balance pressure in early iterations when batch effects dominate, and relaxes later to preserve biological structure.
+\end{itemize}
+\end{tcolorbox}
+
+\vspace{4pt}
+
+\begin{tcolorbox}[
+    title={\textbf{harmony\_best\_mixing}: Maximum mixing via entropic optimal transport},
+    colback=lightblue!10, colframe=keychange!60, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=6pt, right=6pt, top=3pt, bottom=3pt
+]
+\small
+\begin{itemize}[leftmargin=1em, itemsep=2pt]
+    \item \textbf{Mixing (+10.5\%)}: Replaced heuristic ratio penalty with per-batch entropic OT that enforces batch-balanced cluster composition as a hard marginal constraint (supply $=E_{:,b}$). The Sinkhorn algorithm guarantees feasibility of the transport plan, ensuring every cluster receives its expected share of cells from each batch.
+    \item \textbf{Bio conservation (-4.6\%)}: Trade-off from stronger batch mixing enforcement. Partially mitigated by per-cell trust region ($\|\text{corr}_i\| \leq \rho\|Z_i\|$) and cluster-size-adaptive regularization ($\gamma_k \propto 1/s_k$), which prevents small clusters from being over-corrected.
+    \item \textbf{Speed (-56.9\%)}: Log-domain Sinkhorn with up to 25 iterations per batch is computationally expensive. Warm-starting duals reduces average iterations in practice, but the per-batch loop remains the bottleneck.
+\end{itemize}
+\end{tcolorbox}
+
+\end{document}
