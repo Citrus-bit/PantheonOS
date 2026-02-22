@@ -165,9 +165,28 @@ class NATSBackend(RemoteBackend):
         self._streams: Dict[str, NATSStreamChannel] = {}
 
     async def _get_connection(self):
-        """Get NATS connection, JetStream optional for KV storage"""
+        """Get NATS connection with enhanced keepalive for long-running pods"""
         if not self._nc:
-            self._nc = await nats.connect(servers=self.server_urls, **self.nats_kwargs)
+            # Build connection parameters with keepalive config
+            connect_params = dict(self.nats_kwargs)
+
+            # Set aggressive ping interval to detect stale connections
+            # Default is 120s, but cloud firewall may drop idle connections after 1-2 hours
+            if 'ping_interval' not in connect_params:
+                connect_params['ping_interval'] = 30  # Reduced from 120s default
+
+            if 'max_outstanding_pings' not in connect_params:
+                connect_params['max_outstanding_pings'] = 2
+
+            # Enable infinite reconnection attempts for long-running pods
+            if 'max_reconnect_attempts' not in connect_params:
+                connect_params['max_reconnect_attempts'] = -1  # Infinite retries
+
+            if 'reconnect_time_wait' not in connect_params:
+                connect_params['reconnect_time_wait'] = 2  # 2 second wait between retries
+
+            logger.info(f"[NATS] Connecting to {self.server_urls} with ping_interval={connect_params['ping_interval']}s")
+            self._nc = await nats.connect(servers=self.server_urls, **connect_params)
 
             # ✅ Initialize JetStream only if enabled
             if self.enable_jetstream:
@@ -474,7 +493,7 @@ class NATSRemoteWorker(RemoteWorker):
             asyncio.create_task(self._register_to_kv_store())
 
     async def run(self):
-        """Start worker"""
+        """Start worker with connection health monitoring"""
         logger.info(f"[NATSWorker.run] Starting worker for subject: {self.service_subject}")
         if self.nc is None:
             logger.info(f"[NATSWorker.run] Connecting to NATS: {self._backend.server_urls}")
@@ -495,8 +514,93 @@ class NATSRemoteWorker(RemoteWorker):
         if hasattr(self, '_on_ready') and self._on_ready:
             self._on_ready.set()
 
+        # Start connection health monitor in background
+        monitor_task = asyncio.create_task(self._monitor_connection_health())
+
+        try:
+            while self._running:
+                await asyncio.sleep(1)
+        finally:
+            monitor_task.cancel()
+            try:
+                await monitor_task
+            except asyncio.CancelledError:
+                pass
+
+    async def _monitor_connection_health(self):
+        """Monitor NATS connection health and auto-reconnect if needed"""
+        consecutive_failures = 0
+        max_failures = 3
+
         while self._running:
-            await asyncio.sleep(1)
+            try:
+                await asyncio.sleep(60)  # Check every 60 seconds
+
+                if self.nc is None or self.nc.is_closed:
+                    logger.warning("[ConnectionMonitor] NATS connection is closed, attempting to reconnect...")
+                    await self._reconnect_nats()
+                    consecutive_failures = 0
+                else:
+                    # Try to flush (sends buffered data and waits for ack)
+                    # This detects broken TCP connections
+                    try:
+                        await asyncio.wait_for(
+                            self.nc.flush(),
+                            timeout=5.0
+                        )
+                        logger.debug(f"[ConnectionMonitor] NATS connection health check passed")
+                        consecutive_failures = 0
+                    except asyncio.TimeoutError:
+                        consecutive_failures += 1
+                        logger.warning(f"[ConnectionMonitor] NATS flush timeout ({consecutive_failures}/{max_failures})")
+                        if consecutive_failures >= max_failures:
+                            logger.error("[ConnectionMonitor] Max flush timeouts reached, reconnecting...")
+                            await self._reconnect_nats()
+                            consecutive_failures = 0
+                    except Exception as e:
+                        consecutive_failures += 1
+                        logger.warning(f"[ConnectionMonitor] Flush check failed ({consecutive_failures}/{max_failures}): {e}")
+                        if consecutive_failures >= max_failures:
+                            logger.error("[ConnectionMonitor] Max failures reached, reconnecting...")
+                            await self._reconnect_nats()
+                            consecutive_failures = 0
+
+            except asyncio.CancelledError:
+                logger.debug("[ConnectionMonitor] Monitor task cancelled")
+                break
+            except Exception as e:
+                logger.error(f"[ConnectionMonitor] Unexpected error: {e}")
+                await asyncio.sleep(5)
+
+    async def _reconnect_nats(self):
+        """Attempt to reconnect NATS connection"""
+        try:
+            if self._subscription:
+                try:
+                    await self._subscription.unsubscribe()
+                except Exception as e:
+                    logger.debug(f"Error unsubscribing during reconnect: {e}")
+                self._subscription = None
+
+            if self.nc and not self.nc.is_closed:
+                try:
+                    await self.nc.close()
+                except Exception as e:
+                    logger.debug(f"Error closing old connection: {e}")
+
+            logger.info(f"[Reconnect] Establishing new NATS connection to {self._backend.server_urls}...")
+            self.nc, _ = await self._backend._get_connection()
+            logger.info(f"[Reconnect] Successfully reconnected to NATS: {self.nc.connected_url}")
+
+            # Re-subscribe to service subject
+            self._subscription = await self.nc.subscribe(
+                self.service_subject, cb=self._handle_request
+            )
+            logger.info(f"[Reconnect] Re-subscribed to service subject: {self.service_subject}")
+
+        except Exception as e:
+            logger.error(f"[Reconnect] Failed to reconnect: {e}")
+            # Connection will retry automatically due to NATS client's built-in reconnection
 
     async def stop(self):
         """Stop worker"""

@@ -514,7 +514,7 @@ class SkillbookToolSet(ToolSet):
             response = await context.call_agent(
                 messages=[{"role": "user", "content": prompt}],
                 system_prompt=SKILL_SEARCH_SYSTEM_PROMPT,
-                model=None,  # Use agent's default model
+                model="low",
                 use_memory=False,
             )
             

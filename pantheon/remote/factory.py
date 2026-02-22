@@ -96,6 +96,32 @@ def resolve_backend_config(
         subject_prefix = remote_config.get("subject_prefix") or os.getenv("NATS_SUBJECT_PREFIX")
         if subject_prefix:
             config["subject_prefix"] = subject_prefix
+
+        # Connection keepalive parameters (optional, for long-running pods)
+        ping_interval = os.getenv("NATS_PING_INTERVAL")
+        if ping_interval:
+            try:
+                config["ping_interval"] = int(ping_interval)
+                logger.info(f"Configured NATS ping_interval: {ping_interval}s")
+            except ValueError:
+                logger.warning(f"Invalid NATS_PING_INTERVAL value: {ping_interval}, using default")
+
+        max_reconnect = os.getenv("NATS_MAX_RECONNECT_ATTEMPTS")
+        if max_reconnect:
+            try:
+                config["max_reconnect_attempts"] = int(max_reconnect)
+                logger.info(f"Configured NATS max_reconnect_attempts: {max_reconnect}")
+            except ValueError:
+                logger.warning(f"Invalid NATS_MAX_RECONNECT_ATTEMPTS value: {max_reconnect}, using default")
+
+        reconnect_wait = os.getenv("NATS_RECONNECT_WAIT")
+        if reconnect_wait:
+            try:
+                config["reconnect_time_wait"] = int(reconnect_wait)
+                logger.info(f"Configured NATS reconnect_time_wait: {reconnect_wait}s")
+            except ValueError:
+                logger.warning(f"Invalid NATS_RECONNECT_WAIT value: {reconnect_wait}, using default")
+
     else:
         raise ValueError(f"Unknown backend: {backend}")
 
