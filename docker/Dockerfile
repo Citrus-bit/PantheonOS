@@ -33,30 +33,34 @@ RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debia
     && rm -rf /var/lib/apt/lists/* && \
     pip install uv
 
-# Set working directory
 WORKDIR /app
 
-# Copy local code
-COPY . /app/
-
-# Sync dependencies using uv
-# --frozen: use uv.lock
-# Project environment set to /app/.venv explicitly
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv
-# Ensure we use the system python (which matches the final stage) to create the venv
-# Install all extras: knowledge, slack, r (excluding dev)
-RUN uv sync --no-dev --all-extras --python /usr/local/bin/python
 
+# ── Layer 1: dependency files only ──────────────────────────────────────────
+# Copy only pyproject.toml + uv.lock so this layer is reused on code-only changes.
+COPY pyproject.toml uv.lock ./
+
+# Install all Python dependencies (no project package itself yet).
+# BuildKit cache mount keeps uv's HTTP cache on the host across builds.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --no-dev --all-extras --no-install-project --python /usr/local/bin/python
+
+# ── Layer 2: single-cell analysis extras ────────────────────────────────────
+# These packages are fixed (not in pyproject.toml), so they are also cached
+# as long as the list below doesn't change.
+#
 # ============================================
 # Single Cell Analysis Dependencies (Optimized - 12 packages)
 # ============================================
 # Based on comprehensive dependency testing with uv pip compile
 # ALL packages below are verified CUDA-free (no torch/nvidia dependencies)
 # Covers 70-80% of single-cell analysis workflows (core workflows: 100%)
-
+#
 # Optimized single-cell stack (~120MB, adds ~3-4 min to build time)
 # Focuses on most frequently used packages (>70% usage rate)
-RUN uv pip install --python /app/.venv/bin/python --no-cache \
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --python /app/.venv/bin/python \
     # Core data structures & framework (~55MB) - 95% usage
     anndata \
     scanpy \
@@ -102,6 +106,15 @@ RUN uv pip install --python /app/.venv/bin/python --no-cache \
 # - Coverage: 70-80% of workflows without runtime installation (core workflows: 100%)
 # - Spatial transcriptomics: Basic features via scanpy (70-80% coverage)
 # - Less common features installed on-demand (adds 2-10 minutes per package)
+
+# ── Layer 3: application code ────────────────────────────────────────────────
+# Copy source code AFTER all dependencies are installed.
+# Code-only changes never invalidate the expensive dependency layers above.
+COPY . /app/
+
+# Install the project package itself (all deps already cached → fast).
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --no-dev --all-extras --python /usr/local/bin/python
 
 # Production stage
 FROM python:3.11-slim-bookworm
@@ -151,7 +164,6 @@ RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debia
     curl -LsSf https://astral.sh/uv/install.sh | sh && \
     mv /root/.local/bin/uv /usr/local/bin/uv
 
-# Set working directory
 WORKDIR /app
 
 # Copy virtual environment from builder
