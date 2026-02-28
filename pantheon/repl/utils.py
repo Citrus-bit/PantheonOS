@@ -211,6 +211,7 @@ async def get_detailed_token_stats(chatroom, chat_id, team, fallback: dict) -> d
     if chatroom and chat_id:
         try:
             if hasattr(chatroom, 'memory_manager'):
+                # Read-only: getting token/context statistics for display, no need to fix
                 memory = chatroom.memory_manager.get_memory(chat_id)
                 if memory:
                     # ✅ Get root agent messages for token/context statistics

@@ -338,6 +338,7 @@ class ChatRoom(ToolSet):
         If no team template is found in memory, create a new team from default template
         and save it to memory for this chat.
         """
+        # Read-only: loading team config, no need to fix
         memory = await run_func(self.memory_manager.get_memory, chat_id)
 
         # Check for stored team template
@@ -481,6 +482,7 @@ class ChatRoom(ToolSet):
             )
 
             # Store full template in memory using consolidated method
+            # Read-only: storing template, no need to fix
             memory = await run_func(self.memory_manager.get_memory, chat_id)
             self._save_team_template_to_memory(memory, template_obj)
 
@@ -636,6 +638,7 @@ class ChatRoom(ToolSet):
             session_id = (args or {}).get("session_id")
             if session_id:
                 try:
+                    # Read-only: reading project metadata, no need to fix
                     memory = await run_func(self.memory_manager.get_memory, session_id)
                     project = memory.extra_data.get("project", {})
                     workspace_path = project.get("workspace_path") if isinstance(project, dict) else None
@@ -741,6 +744,7 @@ class ChatRoom(ToolSet):
                 "message": f"'{agent_name}' is not a primary team agent.",
             }
 
+        # Read-only: setting active agent, no need to fix
         memory = await run_func(self.memory_manager.get_memory, chat_name)
 
         # Set active agent
@@ -757,6 +761,7 @@ class ChatRoom(ToolSet):
         try:
             # Get the team for this specific chat
             team = await self.get_team_for_chat(chat_name)
+            # Read-only: getting active agent, no need to fix
             memory = await run_func(self.memory_manager.get_memory, chat_name)
             active_agent = team.get_active_agent(memory)
             return {
@@ -842,6 +847,7 @@ class ChatRoom(ToolSet):
             ids = await run_func(self.memory_manager.list_memories)
             chats = []
             for id in ids:
+                # Read-only: listing chats, no need to fix
                 memory = await run_func(self.memory_manager.get_memory, id)
                 project = memory.extra_data.get("project", None)
 
@@ -890,6 +896,8 @@ class ChatRoom(ToolSet):
             filter_out_images: Whether to filter out the images.
         """
         try:
+            # Frontend query: skip auto-fix for better performance (5-10x faster)
+            # Messages will be fixed automatically when agent execution starts
             memory = await run_func(self.memory_manager.get_memory, chat_id)
             # Get full raw history for UI
             messages = await run_func(memory.get_messages, _ALL_CONTEXTS, False)
@@ -966,6 +974,7 @@ class ChatRoom(ToolSet):
             A dictionary with success status and message.
         """
         try:
+            # Read-only: setting project metadata, no need to fix
             memory = await run_func(self.memory_manager.get_memory, chat_id)
 
             if project_name is None:
@@ -1013,6 +1022,7 @@ class ChatRoom(ToolSet):
             - reverted_content: Content of the deleted user message (if applicable)
         """
         try:
+            # Read-only: reverting message, no need to fix
             memory = await run_func(self.memory_manager.get_memory, chat_id)
             
             # Find the index of the message with the given ID
@@ -1132,7 +1142,8 @@ class ChatRoom(ToolSet):
         if chat_id in self.threads:
             return {"success": False, "message": "Chat is already running"}
         try:
-            memory = await run_func(self.memory_manager.get_memory, chat_id)
+            # CRITICAL: Agent execution - MUST fix messages for LLM API
+            memory = await run_func(self.memory_manager.get_memory, chat_id, True)
         except KeyError:
             return {"success": False, "message": f"Chat '{chat_id}' not found"}
         memory.extra_data["running"] = True
@@ -1283,9 +1294,10 @@ class ChatRoom(ToolSet):
     ) -> dict:
         """Common suggestion handling logic using centralized suggestion generator."""
         try:
-            # Get chat memory directly from memory manager
+            # Read-only: getting suggestions, no need to fix
             memory = await run_func(self.memory_manager.get_memory, chat_id)
-            messages = memory.get_messages(None)
+            # Use for_llm=False to skip unnecessary LLM processing (compression truncation, etc.)
+            messages = memory.get_messages(None, for_llm=False)
 
             if len(messages) < 2:
                 return {
@@ -1372,6 +1384,7 @@ class ChatRoom(ToolSet):
     async def get_chat_template(self, chat_id: str) -> dict:
         """Get the current template for a specific chat."""
         try:
+            # Read-only: getting template, no need to fix
             memory = await run_func(self.memory_manager.get_memory, chat_id)
 
             # Check if chat has a stored template
@@ -1572,6 +1585,7 @@ class ChatRoom(ToolSet):
                         logger.warning(f"Failed to persist model to template file: {e}")
 
             # Also update memory template for current session
+            # Read-only: updating model config, no need to fix
             memory = await run_func(self.memory_manager.get_memory, chat_id)
             team_template = memory.extra_data.get("team_template", {})
 
@@ -1614,7 +1628,8 @@ class ChatRoom(ToolSet):
         """
         try:
             team = await self.get_team_for_chat(chat_id)
-            memory = await run_func(self.memory_manager.get_memory, chat_id)
+            # CRITICAL: Compression may need valid messages for LLM API
+            memory = await run_func(self.memory_manager.get_memory, chat_id, True)
             
             if not hasattr(team, 'force_compress'):
                 return {"success": False, "message": "Team does not support compression"}

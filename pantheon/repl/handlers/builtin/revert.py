@@ -12,8 +12,9 @@ class RevertCommandHandler(CommandHandler):
         """Handle the /revert command."""
         
         args = command[7:].strip()
+        # Read-only: reverting messages, no need to fix (revert_to_message handles cleanup)
         memory = await run_func(self.parent._chatroom.memory_manager.get_memory, self.parent._chat_id)
-        
+
         # Mode 1: Revert by index directly
         if args:
             try:

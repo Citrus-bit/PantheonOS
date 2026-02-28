@@ -710,6 +710,7 @@ class ReplUI:
         chat_id = getattr(self, "_chat_id", None)
         if chatroom and chat_id:
             try:
+                # Read-only: displaying memory path, no need to fix
                 memory = chatroom.memory_manager.get_memory(chat_id)
                 file_path = getattr(memory, "_file_path", None)
                 if file_path:

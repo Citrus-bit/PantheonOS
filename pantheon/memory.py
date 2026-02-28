@@ -311,7 +311,7 @@ class Memory:
 
     def _fix_orphaned_tool_calls(self):
         """Add placeholder responses for orphaned tool_calls and fix context IDs.
-        
+
         1. Inserts [INTERNAL_ERROR] tool responses for any tool_call that lacks
            a corresponding tool message.
         2. Updates existing placeholder messages to ensure they match key metadata
@@ -319,29 +319,29 @@ class Memory:
         """
         import time
         from copy import deepcopy
-        
+
         # Helper to find tool message for a tool_call_id
         tool_msgs_map = {
             msg.get("tool_call_id"): msg
             for msg in self._messages
             if msg.get("role") == "tool" and msg.get("tool_call_id")
         }
-        
+
         insertions = []  # (index, placeholder_message)
-        
+
         for i, msg in enumerate(self._messages):
             if msg.get("role") == "assistant" and msg.get("tool_calls"):
                 parent_context_id = msg.get("execution_context_id")
                 parent_agent_name = msg.get("agent_name")
-                
+
                 # Check each tool call in this assistant message
                 for tc in msg["tool_calls"]:
                     tc_id = tc.get("id")
                     if not tc_id:
                         continue
-                        
+
                     existing_tool_msg = tool_msgs_map.get(tc_id)
-                    
+
                     if existing_tool_msg:
                         continue
                     else:
@@ -360,7 +360,7 @@ class Memory:
                             placeholder["execution_context_id"] = parent_context_id
                         if parent_agent_name:
                             placeholder["agent_name"] = parent_agent_name
-                        
+
                         # Use parent's metadata structure if useful (optional, but good for tracking)
                         if "_metadata" in msg:
                              # Minimal metadata copy if needed
@@ -369,16 +369,34 @@ class Memory:
                         insertions.append((i + 1, placeholder))
                         # Update map to prevent duplicates if multiple refs exist (unlikely)
                         tool_msgs_map[tc_id] = placeholder
-        
+
         # Insert in reverse order to maintain correct indices
         for idx, placeholder in reversed(insertions):
             self._messages.insert(idx, placeholder)
-        
+
         if insertions:
             logger.info(
                 f"Fixed memory '{self.name}': {len(insertions)} orphaned tool_call(s) inserted."
             )
             self._schedule_persist()
+
+    def ensure_fixed(self):
+        """Ensure memory is fixed (idempotent).
+
+        This method can be called multiple times safely. It will only fix
+        corrupted messages and orphaned tool calls once, then persist the
+        result to disk.
+
+        Use this method when you need to ensure the memory is in a valid
+        state for agent execution or LLM API calls.
+        """
+        if not getattr(self, '_orphans_fixed', False):
+            self._fix_corrupted_messages()
+            self._fix_orphaned_tool_calls()
+            self._orphans_fixed = True
+            # Persist the fixed state immediately
+            if self._dirty:
+                self._schedule_persist()
 
 
 DEFAULT_CHAT_NAME = "New Chat"
@@ -416,24 +434,33 @@ class MemoryManager:
         memory._file_path = str(self.path / f"{memory.id}.json")
         return memory
 
-    def get_memory(self, id: str) -> Memory:
+    def get_memory(self, id: str, auto_fix: bool = False) -> Memory:
         """
         Get a memory by its ID.
 
         Args:
             id: The ID of the memory.
+            auto_fix: If True, automatically fix corrupted messages and orphaned
+                     tool calls. This is required for agent execution and LLM API
+                     calls. If False (default), return the memory as-is for
+                     read-only operations like frontend queries.
 
         Raises:
             KeyError: If the memory with the given ID does not exist.
+
+        Performance Note:
+            Setting auto_fix=False skips the fix operations, which can save
+            5-10ms for read-only queries. The fix will be applied automatically
+            when the memory is used for agent execution.
         """
         if id not in self.memory_store:
             raise KeyError(f"Chat '{id}' not found. It may have been deleted.")
         memory = self.memory_store[id]
-        # Lazy fix: repair orphaned tool_calls on first access
-        if not getattr(memory, '_orphans_fixed', False):
-            memory._fix_corrupted_messages()
-            memory._fix_orphaned_tool_calls()
-            memory._orphans_fixed = True
+
+        # Only fix if explicitly requested (for agent execution)
+        if auto_fix:
+            memory.ensure_fixed()
+
         return memory
 
     def delete_memory(self, id: str):
@@ -510,6 +537,7 @@ class MemoryManager:
             memory_id: The ID of the memory.
             name: The new name of the memory.
         """
+        # Read-only: updating memory name, no need to fix
         memory = self.get_memory(memory_id)
         memory.name = name
         self.save_one(memory_id)

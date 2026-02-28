@@ -479,6 +479,7 @@ class Repl(ReplUI):
         try:
             # ✅ Fast path: Read from cached metadata (O(1))
             if self._chatroom and self._chat_id:
+                # Read-only: getting token statistics, no need to fix
                 memory = self._chatroom.memory_manager.get_memory(self._chat_id)
                 if memory:
                     # Get root agent messages with LLM view (respects compression truncation)
@@ -1493,6 +1494,7 @@ class Repl(ReplUI):
             # Force reload from default template by clearing stored template
             try:
                 from pantheon.utils.misc import run_func
+                # Read-only: clearing team template from extra_data, no need to fix
                 memory = await run_func(self._chatroom.memory_manager.get_memory, self._chat_id)
                 if hasattr(memory, "extra_data") and "team_template" in memory.extra_data:
                     del memory.extra_data["team_template"]
@@ -2039,6 +2041,7 @@ class Repl(ReplUI):
 
     async def _save_chat(self, filename: str):
         """Save current chat to file."""
+        # Read-only: saving chat to file, no need to fix
         memory = self._chatroom.memory_manager.get_memory(self._chat_id)
         memory.save(filename)
 
@@ -2084,6 +2087,7 @@ class Repl(ReplUI):
                 # Update status bar with post-compression estimate
                 if self.prompt_app:
                     try:
+                        # Read-only: getting pre-compression token statistics, no need to fix
                         memory = self._chatroom.memory_manager.get_memory(self._chat_id)
                         if memory:
                             # Find pre-compression total/max from last metadata

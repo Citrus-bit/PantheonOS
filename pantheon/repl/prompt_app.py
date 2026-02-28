@@ -828,6 +828,7 @@ class PantheonInputApp:
         # Fetch new title
         try:
             # repl._chatroom is guaranteed to be initialized in Repl.__init__
+            # Read-only: getting chat name for display, no need to fix
             memory = self.repl._chatroom.memory_manager.get_memory(current_chat_id)
             chat_name = memory.name if memory else current_chat_id
         except Exception:
