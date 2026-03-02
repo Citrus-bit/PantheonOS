@@ -1,31 +1,62 @@
+<!-- Banner placeholder — will be added later -->
+
 <div align="center">
-  <h1> Pantheon </h1>
 
-  <p> A framework for building distributed LLM-based multi-agent systems. </p>
+# PantheonOS
 
-  <p>
-    <a href="https://github.com/aristoteleo/pantheon-agents/actions/workflows/test.yml">
-        <img src="https://github.com/aristoteleo/pantheon-agents/actions/workflows/test.yml/badge.svg" alt="Build Status">
-    </a>
-    <a href="https://pypi.org/project/pantheon-agents/">
-      <img src="https://img.shields.io/pypi/v/pantheon-agents.svg" alt="Install with PyPi" />
-    </a>
-    <a href="https://github.com/aristoteleo/pantheon-agents/blob/master/LICENSE">
-      <img src="https://img.shields.io/github/license/aristoteleo/pantheon-agents" alt="MIT license" />
-    </a>
-  </p>
+***A framework for building distributed, evolvable multi-agent systems.***
+
+
+[Official Site][official-site] · [Online App][online-app] · [Documents][docs] · [Feedback][github-issues-link]
+
+[official-site]: https://pantheonos.stanford.edu/
+[online-app]: https://app.pantheonos.stanford.edu/
+[docs]: https://pantheonos.stanford.edu/cli/docs/intro/getting-started
+
 </div>
 
-## Features
+<div align="center">
 
-- **Multi-Agent Teams**: PantheonTeam, Sequential, Swarm, MoA, and AgentAsToolTeam patterns
-- **Rich Toolsets**: File operations, Python/Shell execution, Jupyter notebooks, Web browsing, RAG
-- **Interactive REPL**: Full-screen file viewer, syntax highlighting, approval workflows
-- **MCP Integration**: Native Model Context Protocol support
-- **Learning System**: Skillbook-based agent improvement
-- **Distributed Architecture**: NATS-based communication for scalable deployments
+<!-- SHIELD GROUP -->
 
-## Installation
+[![][website-shield]][website-link]
+[![][online-app-shield]][online-app]
+[![][manuscript-shield]][manuscript-link]<br/>
+[![][slack-shield]][slack-link]
+[![][discord-shield]][discord-link]
+[![][x-shield]][x-link]
+[![][bluesky-shield]][bluesky-link]<br/>
+[![][github-contributors-shield]][github-contributors-link]
+[![][github-forks-shield]][github-forks-link]
+[![][github-stars-shield]][github-stars-link]
+[![][github-issues-shield]][github-issues-link]
+[![][github-license-shield]][github-license-link]<br/>
+[![][pypi-shield]][pypi-link]
+[![][python-shield]][python-link]
+[![][status-shield]]()
+
+</div>
+
+## `1` [What is PantheonOS?](#1-what-is-pantheonos)
+
+PantheonOS is an **evolvable, privacy-preserving multi-agent framework** designed to reconcile generality with domain specificity. Autonomous agents powered by large language models collaborate to conduct biological discovery — achieving super-human performance on specialized scientific tasks.
+
+### Key Highlights
+
+- **Distributed Architecture** — NATS-based messaging for scalable, fault-tolerant deployments across machines
+- **Evolvable** — Pantheon-Evolve module enables agents to improve algorithms and code through genetic-algorithm-driven agentic code evolution
+- **Multi-Agent Teams** — PantheonTeam, Sequential, Swarm, Mixture-of-Agents (MoA), and AgentAsTool team patterns for flexible orchestration
+- **Friendly Interfaces** — Interactive CLI (`pantheon cli`) and Chatroom UI (`pantheon ui`)
+
+## `2` [Quick Start & Community](#2-quick-start--community)
+
+| | |
+| :--- | :--- |
+| [![][pypi-shield]][pypi-link] | `pip install pantheon-agents` |
+| [![][slack-shield-badge]][slack-link] | Join our Slack community! |
+| [![][discord-shield-badge]][discord-link] | Join our Discord community! |
+
+## `3` [Installation](#3-installation)
 
 ### Using uv (Recommended)
 
@@ -39,8 +70,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 
 # Clone and install
-git clone https://github.com/aristoteleo/pantheon-agents.git
-cd pantheon-agents
+git clone https://github.com/aristoteleo/PantheonOS.git
+cd PantheonOS
 uv sync
 
 # With optional dependencies
@@ -63,85 +94,85 @@ pip install "pantheon-agents[slack]"      # Slack integration
 ### Development Installation
 
 ```bash
-git clone https://github.com/aristoteleo/pantheon-agents.git
-cd pantheon-agents
+git clone https://github.com/aristoteleo/PantheonOS.git
+cd PantheonOS
 uv sync --extra dev --extra knowledge
 
 # Run tests
 uv run pytest tests/
 ```
 
-## Requirements
+## `4` [Usage](#4-usage)
 
-- Python 3.10+
-- API keys for LLM providers (e.g., `OPENAI_API_KEY` for OpenAI models)
-
-## Quick Start
-
-### Using the REPL
-
-The easiest way to start:
+### CLI Mode
 
 ```bash
-# With uv
-uv run python -m pantheon.repl
-
-# Or with pip installation
-python -m pantheon.repl
+# Start the interactive REPL
+pantheon cli
 ```
 
-### Creating an Agent
+### Chatroom UI
 
-```python
-import asyncio
-from pantheon import Agent
-
-async def main():
-    agent = Agent(
-        name="assistant",
-        instructions="You are a helpful assistant.",
-        model="gpt-4o-mini"
-    )
-    await agent.chat()
-
-asyncio.run(main())
+```bash
+# Start the multi-agent chatroom
+pantheon ui --auto-start-nats --auto-ui
 ```
 
-### Using Toolsets
+### API Usage
 
-```python
-from pantheon import Agent
-from pantheon.toolsets import FileManagerToolSet, ShellToolSet
+Please refer to our [Documents][docs] for detailed API usage, including creating agents, using toolsets, and building teams.
 
-agent = Agent(
-    name="developer",
-    instructions="You are a developer assistant.",
-    model="gpt-4o",
-    tools=[FileManagerToolSet(), ShellToolSet()]
-)
-```
+## `5` [Contributing](#5-contributing)
 
-### Creating Teams
+Contributions of all types are more than welcome! If you are interested in contributing code, feel free to check out our GitHub [Issues][github-issues-link] to dive in.
 
-```python
-from pantheon import Agent
-from pantheon.team import PantheonTeam
+[![][pr-welcome-shield]][pr-welcome-link]
 
-researcher = Agent(name="researcher", instructions="Research topics.")
-writer = Agent(name="writer", instructions="Write content.")
+<details><summary><h4>📝 License</h4></summary>
 
-team = PantheonTeam([researcher, writer])
-await team.chat()
-```
+This project is [BSD 2-Clause](./LICENSE) licensed.
 
-## Documentation
+</details>
 
-See the [docs](docs/) folder for detailed documentation.
+Copyright © 2026 [Qiu Lab](https://www.devo-evo.com/).
 
-## Examples
+<!-- LINK GROUP -->
 
-See the [examples](examples/) folder for usage patterns and implementations.
+[github-contributors-link]: https://github.com/aristoteleo/PantheonOS/graphs/contributors
+[github-contributors-shield]: https://img.shields.io/github/contributors/aristoteleo/PantheonOS?color=c4f042&labelColor=black&style=flat-square
+[github-forks-link]: https://github.com/aristoteleo/PantheonOS/network/members
+[github-forks-shield]: https://img.shields.io/github/forks/aristoteleo/PantheonOS?color=8ae8ff&labelColor=black&style=flat-square
+[github-issues-link]: https://github.com/aristoteleo/PantheonOS/issues
+[github-issues-shield]: https://img.shields.io/github/issues/aristoteleo/PantheonOS?color=ff80eb&labelColor=black&style=flat-square
+[github-license-link]: https://github.com/aristoteleo/PantheonOS/blob/main/LICENSE
+[github-license-shield]: https://img.shields.io/badge/license-BSD--2--Clause-white?labelColor=black&style=flat-square
+[github-stars-link]: https://github.com/aristoteleo/PantheonOS/network/stargazers
+[github-stars-shield]: https://img.shields.io/github/stars/aristoteleo/PantheonOS?color=ffcb47&labelColor=black&style=flat-square
 
-## License
+[website-link]: https://pantheonos.stanford.edu/
+[website-shield]: https://img.shields.io/badge/official--website-55b467?labelColor=black&logo=safari&logoColor=white&style=flat-square
+[manuscript-link]: https://pantheonos.stanford.edu/paper
+[manuscript-shield]: https://img.shields.io/badge/manuscript-read-red?labelColor=black&logo=arxiv&logoColor=white&style=flat-square
+[x-link]: https://x.com/PantheonOS
+[x-shield]: https://img.shields.io/badge/X-follow-000000?labelColor=black&logo=x&logoColor=white&style=flat-square
+[bluesky-link]: https://bsky.app/profile/pantheonos.bsky.social
+[bluesky-shield]: https://img.shields.io/badge/bluesky-follow-0085FF?labelColor=black&logo=bluesky&logoColor=white&style=flat-square
+[online-app-shield]: https://img.shields.io/badge/online%20app-try%20now-369eff?labelColor=black&logo=googlechrome&logoColor=white&style=flat-square
+[discord-link]: https://discord.com/invite/UHsuzAyz
+[discord-shield]: https://img.shields.io/badge/discord-join-5865F2?labelColor=black&logo=discord&logoColor=white&style=flat-square
+[discord-shield-badge]: https://img.shields.io/badge/discord-join-5865F2?labelColor=black&logo=discord&logoColor=white&style=flat-square
 
-MIT License
+[slack-link]: https://join.slack.com/t/pantheonos/shared_invite/zt-3bmj318fo-vAWtJA01VkcqyHsleduFjQ
+[slack-shield]: https://img.shields.io/badge/slack-join-4A154B?labelColor=black&logo=slack&logoColor=white&style=flat-square
+[slack-shield-badge]: https://img.shields.io/badge/slack-join-4A154B?labelColor=black&logo=slack&logoColor=white&style=flat-square
+
+[pypi-link]: https://pypi.org/project/pantheon-agents
+[pypi-shield]: https://img.shields.io/pypi/v/pantheon-agents?color=369eff&labelColor=black&logo=pypi&logoColor=white&style=flat-square
+
+[python-link]: https://www.python.org/downloads/
+[python-shield]: https://img.shields.io/badge/python-3.10%2B-3776AB?labelColor=black&style=flat-square&logo=python&logoColor=white
+[status-shield]: https://img.shields.io/badge/status-beta-orange?labelColor=black&style=flat-square
+
+
+[pr-welcome-link]: https://github.com/aristoteleo/PantheonOS/pulls
+[pr-welcome-shield]: https://img.shields.io/badge/👌_pr_welcome-%E2%86%92-ffcb47?labelColor=black&style=for-the-badge
