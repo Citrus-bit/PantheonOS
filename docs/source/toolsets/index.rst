@@ -234,7 +234,7 @@ Creating Custom Tools
 
 .. code-block:: python
 
-   from pantheon import ToolSet, tool
+   from pantheon.toolset import ToolSet, tool
 
    class MyToolSet(ToolSet):
        @tool
@@ -270,18 +270,18 @@ Tool Decorator Options
 
 .. code-block:: python
 
-   from pantheon.toolset import tool, JobMode
+   from pantheon.toolset import tool
 
    class AdvancedToolSet(ToolSet):
-       @tool(job_mode=JobMode.PROCESS)
+       @tool
        def cpu_intensive_task(self, data: str) -> str:
-           """Run in separate process for CPU-intensive work."""
+           """CPU-intensive work."""
            # Heavy computation here
            return result
 
-       @tool(job_mode=JobMode.THREAD)
+       @tool
        def io_bound_task(self, path: str) -> str:
-           """Run in thread pool for I/O operations."""
+           """I/O operations."""
            # I/O operations here
            return result
 

@@ -10,7 +10,7 @@ Custom Toolsets
 
 .. code-block:: python
 
-   from pantheon import ToolSet, tool
+   from pantheon.toolset import ToolSet, tool
 
    class MyToolSet(ToolSet):
        """Custom toolset for specific operations."""

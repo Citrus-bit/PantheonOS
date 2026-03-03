@@ -8,15 +8,15 @@ Overview
 
 The Pantheon ecosystem is composed of three primary repositories:
 
-- **pantheon-agents**: Core agent framework and orchestration
+- **PantheonOS**: Core agent framework and orchestration
 - **pantheon-toolsets**: Distributed toolset system for agent capabilities  
 - **pantheon-interfaces**: User interfaces for interacting with the system
 
 Component Architecture
 ----------------------
 
-pantheon-agents
-~~~~~~~~~~~~~~~
+PantheonOS (pantheon-agents)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Repository: https://github.com/aristoteleo/PantheonOS
 
@@ -51,7 +51,7 @@ pantheon-toolsets
 
 Repository: https://github.com/aristoteleo/pantheon-toolsets
 
-A distributed toolset system that provides various capabilities to pantheon-agents:
+A distributed toolset system that provides various capabilities to PantheonOS agents:
 
 **Built-in Toolsets:**
 

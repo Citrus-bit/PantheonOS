@@ -150,7 +150,7 @@ After finding tools, use them in Python code:
 
 .. code-block:: python
 
-   from pantheon import packages as pp
+   from pantheon.packages import packages as pp
 
    # Interactive (Notebook/IPython)
    result = await pp.packages.data_tools.csv_to_excel(
@@ -176,7 +176,7 @@ Discover packages directly using the package API:
 
 .. code-block:: python
 
-   from pantheon import packages as pp
+   from pantheon.packages import packages as pp
 
    # List all packages
    packages = await pp.packages.list_packages()

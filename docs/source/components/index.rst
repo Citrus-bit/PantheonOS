@@ -96,11 +96,10 @@ When to Use What
 **MCP Providers**
    Integrating with external services, using community tools.
 
-Next Sections
--------------
+Related Sections
+----------------
 
-- :doc:`agents` - Agent architecture and API
-- :doc:`teams` - Team patterns and orchestration
-- :doc:`toolsets` - Tool system details
-- :doc:`memory` - Memory and context management
-- :doc:`providers` - Provider abstractions
+- :doc:`/api/agent` - Agent API reference
+- :doc:`/team/index` - Team patterns and orchestration
+- :doc:`/toolsets/index` - Tool system details
+- :doc:`/api/memory` - Memory and context management

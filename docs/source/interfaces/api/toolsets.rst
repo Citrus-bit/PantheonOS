@@ -96,7 +96,7 @@ Creating Custom Tools
 
 .. code-block:: python
 
-   from pantheon import ToolSet, tool
+   from pantheon.toolset import ToolSet, tool
 
    class MyToolSet(ToolSet):
        @tool

@@ -279,7 +279,7 @@ SwarmCenterTeam supports RemoteAgent workers:
 
 .. code-block:: python
 
-   from pantheon import RemoteAgent
+   from pantheon.agent import RemoteAgent
 
    # Remote agent fetches its info automatically
    remote_specialist = RemoteAgent(service_id="specialist-service")

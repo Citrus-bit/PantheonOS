@@ -69,7 +69,7 @@ Create LLM-powered functions:
 
 .. code-block:: python
 
-   from pantheon import smart_func
+   from pantheon.smart_func import smart_func
 
    @smart_func(model="gpt-4o-mini")
    def analyze_sentiment(text: str) -> dict:
