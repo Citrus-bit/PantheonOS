@@ -399,26 +399,26 @@ class Settings:
         Load configuration from all three layers and merge.
 
         Priority (highest to lowest):
-        1. ~/.pantheon/settings.json
-        2. pwd/.pantheon/settings.json
-        3. pantheon/factory/templates/settings.json
+        1. pwd/.pantheon/settings.json  (project-specific)
+        2. ~/.pantheon/settings.json    (user defaults)
+        3. pantheon/factory/templates/settings.json  (package defaults)
         """
         # 1. Package defaults (Lowest priority)
         defaults = load_jsonc(self.package_templates / self.SETTINGS_FILE)
         self._settings = defaults
         logger.debug(f"Loaded package defaults from {self.package_templates}")
 
-        # 2. Project config (Medium priority) - using pantheon_dir
-        project = load_jsonc(self.pantheon_dir / self.SETTINGS_FILE)
-        self._merge_settings(self._settings, project)
-        if project:
-            logger.debug(f"Loaded project config from {self.pantheon_dir}")
-
-        # 3. User config (Highest priority)
+        # 2. User config (Medium priority - personal defaults)
         user = load_jsonc(self.user_home / self.SETTINGS_FILE)
         self._merge_settings(self._settings, user)
         if user:
             logger.debug(f"Loaded user config from {self.user_home}")
+
+        # 3. Project config (Highest priority - project-specific overrides)
+        project = load_jsonc(self.pantheon_dir / self.SETTINGS_FILE)
+        self._merge_settings(self._settings, project)
+        if project:
+            logger.debug(f"Loaded project config from {self.pantheon_dir}")
 
         # Load env_file
         # Priority: dynamically set variables > .env file > defaults
@@ -436,20 +436,20 @@ class Settings:
 
     def _load_mcp(self) -> None:
         """Load MCP configuration."""
-        # 1. Package Defaults
+        # 1. Package Defaults (Lowest priority)
         self._mcp = load_jsonc(self.package_templates / self.MCP_FILE)
 
-        # 2. Project Config (Merge)
-        mcp_project = load_jsonc(self.pantheon_dir / self.MCP_FILE)
-        self._merge_settings(self._mcp, mcp_project)
-        if mcp_project:
-            logger.debug(f"Loaded project MCP config from {self.pantheon_dir}")
-
-        # 3. User Config (Merge)
+        # 2. User Config (Medium priority - personal defaults)
         mcp_user = load_jsonc(self.user_home / self.MCP_FILE)
         self._merge_settings(self._mcp, mcp_user)
         if mcp_user:
             logger.debug(f"Loaded user MCP config from {self.user_home}")
+
+        # 3. Project Config (Highest priority - project-specific overrides)
+        mcp_project = load_jsonc(self.pantheon_dir / self.MCP_FILE)
+        self._merge_settings(self._mcp, mcp_project)
+        if mcp_project:
+            logger.debug(f"Loaded project MCP config from {self.pantheon_dir}")
 
     def __getitem__(self, key: str) -> Any:
         """
