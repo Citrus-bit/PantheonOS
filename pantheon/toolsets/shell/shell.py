@@ -99,7 +99,7 @@ class ShellToolSet(ToolSet):
         logger.info(f"[dim]Shell closed: {shell_id[:8]}[/dim]")
         return {"success": True, "shell_id": shell_id}
 
-    @tool
+    @tool(exclude=True)
     async def get_shell_output(
         self,
         shell_id: str,
@@ -272,17 +272,13 @@ class ShellToolSet(ToolSet):
         to execute. Environment variables and working directory are preserved
         across commands in the same session.
 
-        **Timeout Behavior**: When a command times out, it continues running in
-        the background. The response includes a `shell_id` which you can use with
-        `get_shell_output` to check progress and retrieve the remaining output.
-
-        **Auto Shell Allocation**: If the current shell is busy (running a
-        background command), a new shell is automatically allocated.
+        For long-running commands (builds, training, data processing), use
+        run_in_background("run_command", '{"command": "..."}') instead, which
+        provides incremental output tracking and auto-notification on completion.
 
         Args:
             command: The command to run.
-            timeout: Optional timeout in seconds. If the command doesn't complete
-                within this time, it continues running in the background.
+            timeout: Optional timeout in seconds.
             shell_id: Optional. Specify a particular shell ID to use.
                 If not provided, automatically uses an available shell.
             max_output: Optional. Max output characters (for verbose commands like
@@ -293,26 +289,15 @@ class ShellToolSet(ToolSet):
                 "success": bool,       # True if executed successfully
                 "output": str,         # Command output (stdout + stderr)
                 "status": str,         # "completed" or "timeout"
-                "shell_id": str        # Shell ID (returned on timeout for follow-up)
             }
-        
-        Note:
-            Large outputs are auto-truncated. Use max_output for early truncation.
 
         Tips:
-            - You may want to limit the length of output for commands that usually rely on paging and may contain very long output (e.g. `ls -R`, `git log`, use `head -n 20` or `git log -n 5`).
-            - Use `max_output` parameter as a safety net.
+            - Limit output for paging commands (e.g. `git log -n 5`, `head -n 20`).
+            - Use `max_output` as a safety net for verbose commands.
 
         Examples:
-            # Run a quick command
             run_command(command="ls -la")
-
-            # Run a long task with timeout (becomes background)
-            run_command(command="npm run build", timeout=10)
-            # Returns: {"status": "timeout", "shell_id": "xxx", ...}
-
-            # Run verbose command with early truncation
-            run_command(command="R -e 'BiocManager::install(...)'", max_output=5000)
+            run_command(command="R -e 'install(...)'", max_output=5000)
         """
         # If shell_id is provided, use it directly (Manual Mode)
         if shell_id:
