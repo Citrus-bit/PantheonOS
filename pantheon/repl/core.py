@@ -1843,9 +1843,11 @@ class Repl(ReplUI):
             /keys              - List all providers and their status
             /keys 1 sk-xxx     - Set key by number
             /keys openai sk-xxx - Set key by provider name
+            /keys rm 0         - Remove custom endpoint
+            /keys rm 1         - Remove provider key by number
         """
         import os
-        from .setup_wizard import PROVIDER_MENU, _save_key_to_env_file
+        from .setup_wizard import PROVIDER_MENU, _save_key_to_env_file, _remove_key_from_env_file
         from pantheon.utils.model_selector import reset_model_selector
 
         if not args:
@@ -1879,6 +1881,7 @@ class Repl(ReplUI):
             self.console.print()
             self.console.print("[dim]Usage: /keys <number|name> <api_key>[/dim]")
             self.console.print("[dim]       /keys 0 <base_url> <api_key>  (custom endpoint)[/dim]")
+            self.console.print("[dim]       /keys rm <number|name>         (remove key)[/dim]")
             self.console.print("[dim]Keys are saved to ~/.pantheon/.env[/dim]")
             self.console.print()
             return
@@ -1888,9 +1891,41 @@ class Repl(ReplUI):
         if len(parts) < 2:
             self.console.print("[yellow]Usage: /keys <number|name> <api_key>[/yellow]")
             self.console.print("[yellow]       /keys 0 <base_url> <api_key>[/yellow]")
+            self.console.print("[yellow]       /keys rm <number|name>[/yellow]")
             return
 
         provider_arg, rest = parts[0], parts[1].strip()
+
+        # Handle /keys rm <number|name>
+        if provider_arg.lower() in ("rm", "del", "delete", "remove"):
+            target_arg = rest.strip()
+            if target_arg == "0":
+                _remove_key_from_env_file("LLM_API_BASE")
+                _remove_key_from_env_file("LLM_API_KEY")
+                reset_model_selector()
+                self.console.print("[green]\u2713[/green] Custom API Endpoint removed from ~/.pantheon/.env")
+                return
+
+            target = None
+            if target_arg.isdigit():
+                idx = int(target_arg)
+                if 1 <= idx <= len(PROVIDER_MENU):
+                    target = PROVIDER_MENU[idx - 1]
+            else:
+                for entry in PROVIDER_MENU:
+                    if entry[0] == target_arg.lower():
+                        target = entry
+                        break
+
+            if not target:
+                self.console.print(f"[red]Unknown provider: {target_arg}[/red]")
+                return
+
+            _, display_name, env_var = target
+            _remove_key_from_env_file(env_var)
+            reset_model_selector()
+            self.console.print(f"[green]\u2713[/green] {display_name} ({env_var}) removed from ~/.pantheon/.env")
+            return
 
         # Handle custom API endpoint (option 0)
         if provider_arg == "0":

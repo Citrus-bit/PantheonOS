@@ -86,6 +86,8 @@ def run_setup_wizard(standalone: bool = False):
             already_set = " [green](configured)[/green]" if os.environ.get(env_var, "") else ""
             console.print(f"  [cyan][{i}][/cyan] {display_name:<16} ({env_var}){already_set}")
         console.print()
+        console.print("[dim]  Prefix with 'd' to delete, e.g. d0, d1,d3[/dim]")
+        console.print()
 
         try:
             selection = pt_prompt("Select providers to configure (comma-separated, e.g. 0,1,3): ")
@@ -96,14 +98,46 @@ def run_setup_wizard(standalone: bool = False):
         # Parse selection
         indices = []
         has_custom = False
+        delete_indices = []
+        delete_custom = False
         for part in selection.split(","):
             part = part.strip()
-            if part == "0":
+            if part.lower().startswith("d"):
+                # Delete mode
+                num = part[1:]
+                if num == "0":
+                    delete_custom = True
+                elif num.isdigit():
+                    idx = int(num)
+                    if 1 <= idx <= len(PROVIDER_MENU):
+                        delete_indices.append(idx - 1)
+            elif part == "0":
                 has_custom = True
             elif part.isdigit():
                 idx = int(part)
                 if 1 <= idx <= len(PROVIDER_MENU):
                     indices.append(idx - 1)
+
+        # Handle deletions
+        if delete_custom:
+            _remove_key_from_env_file("LLM_API_BASE")
+            _remove_key_from_env_file("LLM_API_KEY")
+            console.print("[green]\u2713 Custom API Endpoint removed[/green]")
+
+        for idx in delete_indices:
+            _, display_name, env_var = PROVIDER_MENU[idx]
+            _remove_key_from_env_file(env_var)
+            console.print(f"[green]\u2713 {display_name} ({env_var}) removed[/green]")
+
+        if (delete_custom or delete_indices) and not indices and not has_custom:
+            console.print()
+            try:
+                more = pt_prompt("Continue? [y/N]: ")
+            except (EOFError, KeyboardInterrupt):
+                more = "n"
+            if more.strip().lower() != "y":
+                break
+            continue
 
         if not indices and not has_custom:
             console.print("[yellow]No valid providers selected. Please try again.[/yellow]")
@@ -199,3 +233,13 @@ def _save_key_to_env_file(env_var: str, value: str):
     lines.append(f"{env_var}={value}")
 
     env_file.write_text("\n".join(lines) + "\n")
+
+
+def _remove_key_from_env_file(env_var: str):
+    """Remove a key from ~/.pantheon/.env and unset from environment."""
+    env_file = Path.home() / ".pantheon" / ".env"
+    if env_file.exists():
+        lines = env_file.read_text().splitlines()
+        lines = [line for line in lines if not line.startswith(f"{env_var}=")]
+        env_file.write_text("\n".join(lines) + "\n" if lines else "")
+    os.environ.pop(env_var, None)
