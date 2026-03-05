@@ -1494,7 +1494,7 @@ class ChatRoom(ToolSet):
                 "available_providers": ["openai", "anthropic"],
                 "current_provider": "openai",
                 "models_by_provider": {
-                    "openai": ["openai/gpt-5.2", "openai/gpt-5.1", ...],
+                    "openai": ["openai/gpt-5.4", "openai/gpt-5.2", ...],
                     "anthropic": ["anthropic/claude-opus-4-5-20251101", ...]
                 },
                 "supported_tags": ["high", "normal", "low", "vision", ...]
@@ -1530,7 +1530,7 @@ class ChatRoom(ToolSet):
                 "success": True,
                 "agent": "assistant",
                 "model": "high",
-                "resolved_models": ["openai/gpt-5.2", "openai/gpt-5.1", ...]
+                "resolved_models": ["openai/gpt-5.4", "openai/gpt-5.2", ...]
             }
         """
         try:

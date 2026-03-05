@@ -239,7 +239,7 @@ Use provider/model format for exact model selection:
 .. code-block:: python
 
    # OpenAI
-   agent = Agent(model="openai/gpt-5.2")
+   agent = Agent(model="openai/gpt-5.4")
    agent = Agent(model="openai/gpt-5-mini")
 
    # Anthropic
@@ -257,7 +257,7 @@ Provide multiple models for automatic failover:
 
 .. code-block:: python
 
-   agent = Agent(model=["openai/gpt-5.2", "openai/gpt-4o", "openai/gpt-4o-mini"])
+   agent = Agent(model=["openai/gpt-5.4", "openai/gpt-5.2", "openai/gpt-4o"])
 
 See :doc:`/configuration/models` for full model configuration details.
 

@@ -34,10 +34,10 @@ Select models by quality level:
      - Typical Models (System Defaults)
    * - ``high``
      - Most capable models for complex tasks
-     - ``openai/gpt-5.2``, ``anthropic/claude-opus-4-5-20251101``, ``gemini/gemini-3-pro-preview``
+     - ``openai/gpt-5.4-pro``, ``anthropic/claude-opus-4-5-20251101``, ``gemini/gemini-3-pro-preview``
    * - ``normal``
      - Balanced performance and cost
-     - ``openai/gpt-5.2``, ``anthropic/claude-sonnet-4-5-20250929``, ``gemini/gemini-3-flash-preview``
+     - ``openai/gpt-5.4``, ``anthropic/claude-sonnet-4-5-20250929``, ``gemini/gemini-3-flash-preview``
    * - ``low``
      - Fast and cost-effective
      - ``openai/gpt-5-mini``, ``anthropic/claude-haiku-4-5-20251001``, ``gemini/gemini-flash-lite-latest``
@@ -133,7 +133,7 @@ Major Cloud Providers
      - Example Models
    * - OpenAI
      - ``openai/``
-     - ``gpt-5.2``, ``gpt-5-mini``, ``gpt-4o``, ``o3-mini``
+     - ``gpt-5.4``, ``gpt-5.4-pro``, ``gpt-5.2``, ``gpt-5-mini``, ``gpt-4o``
    * - Anthropic
      - ``anthropic/``
      - ``claude-opus-4-5-20251101``, ``claude-sonnet-4-5-20250929``, ``claude-haiku-4-5-20251001``
@@ -249,7 +249,7 @@ You can specify models in two ways:
 
 .. code-block:: text
 
-   openai/gpt-5.2
+   openai/gpt-5.4
    anthropic/claude-opus-4-5-20251101
    gemini/gemini-3-pro-preview
    deepseek/deepseek-chat
@@ -288,8 +288,8 @@ Configure model defaults in ``.pantheon/settings.json``:
        "provider_priority": ["openai", "anthropic", "gemini", "deepseek"],
        "provider_models": {
          "openai": {
-           "high": ["openai/gpt-5.2", "openai/gpt-5.1"],
-           "normal": ["openai/gpt-5.2", "openai/gpt-4o"],
+           "high": ["openai/gpt-5.4-pro", "openai/gpt-5.4", "openai/gpt-5.2"],
+           "normal": ["openai/gpt-5.4", "openai/gpt-5.2", "openai/gpt-4o"],
            "low": ["openai/gpt-5-mini", "openai/gpt-4o-mini"]
          },
          "anthropic": {
@@ -359,7 +359,7 @@ Python API
    agent = Agent(model="anthropic/claude-opus-4-5-20251101")
 
    # Using fallback chain
-   agent = Agent(model=["openai/gpt-5.2", "openai/gpt-4o", "openai/gpt-4o-mini"])
+   agent = Agent(model=["openai/gpt-5.4", "openai/gpt-5.2", "openai/gpt-4o"])
 
 API Keys
 --------

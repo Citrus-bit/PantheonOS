@@ -30,11 +30,11 @@ DEFAULT_PROVIDER_PRIORITY = ["openai", "anthropic", "gemini", "zai", "deepseek",
 # Quality levels map to MODEL LISTS (not single models) for fallback chains
 # Models within each level are ordered by preference
 DEFAULT_PROVIDER_MODELS = {
-    # OpenAI: GPT-5.2 series
+    # OpenAI: GPT-5.4 series
     # https://platform.openai.com/docs/models
     "openai": {
-        "high": ["openai/gpt-5.2-pro", "openai/gpt-5.2", "openai/gpt-5"],
-        "normal": ["openai/gpt-5.2-codex", "openai/gpt-5.2", "openai/gpt-5"],
+        "high": ["openai/gpt-5.4-pro", "openai/gpt-5.4", "openai/gpt-5.2-pro", "openai/gpt-5.2"],
+        "normal": ["openai/gpt-5.4", "openai/gpt-5.2-codex", "openai/gpt-5.2", "openai/gpt-5"],
         "low": ["openai/gpt-5-mini", "openai/gpt-5-nano", "openai/gpt-4.1-mini"],
     },
     # Anthropic: Claude 4.6 series
@@ -122,7 +122,7 @@ CAPABILITY_MAP = {
 QUALITY_TAGS = {"high", "normal", "low"}
 
 # Ultimate fallback model when nothing else works (must be concrete model, not tag)
-ULTIMATE_FALLBACK = "openai/gpt-5.2"
+ULTIMATE_FALLBACK = "openai/gpt-5.4"
 
 # Recommended fallback tag for general use
 FALLBACK_TAG = "low"
@@ -529,7 +529,7 @@ class ModelSelector:
                 "available_providers": ["openai", "anthropic"],
                 "current_provider": "openai",
                 "models_by_provider": {
-                    "openai": ["openai/gpt-5.2", "openai/gpt-5.1", ...],
+                    "openai": ["openai/gpt-5.4", "openai/gpt-5.2", ...],
                     "anthropic": ["anthropic/claude-opus-4-5-20251101", ...]
                 },
                 "supported_tags": ["high", "normal", "low", "vision", ...]

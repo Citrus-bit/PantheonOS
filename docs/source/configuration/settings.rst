@@ -70,8 +70,8 @@ Pantheon uses LiteLLM and supports smart model selection with quality tags. See 
        "provider_priority": ["openai", "anthropic", "gemini", "deepseek"],
        "provider_models": {
          "openai": {
-           "high": ["openai/gpt-5.2", "openai/gpt-5.1"],
-           "normal": ["openai/gpt-5.2", "openai/gpt-4o"],
+           "high": ["openai/gpt-5.4-pro", "openai/gpt-5.4", "openai/gpt-5.2"],
+           "normal": ["openai/gpt-5.4", "openai/gpt-5.2", "openai/gpt-4o"],
            "low": ["openai/gpt-5-mini", "openai/gpt-4o-mini"]
          },
          "anthropic": {
