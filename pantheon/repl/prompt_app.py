@@ -606,17 +606,21 @@ def create_key_bindings(app_instance: "PantheonInputApp") -> KeyBindings:
 
     @kb.add("down", filter=~is_processing & ~is_bg_panel)
     def _(event):
-        """Down arrow: open bg panel when cursor is on the last line."""
+        """Down arrow: history/cursor navigation first, bg panel last."""
         buffer = event.current_buffer
-        text = buffer.text
-        cursor = buffer.cursor_position
-        # Check if cursor is on the last line
-        after_cursor = text[cursor:]
-        on_last_line = "\n" not in after_cursor
-        if on_last_line:
+        # Remember state before auto_down
+        old_text = buffer.text
+        old_cursor = buffer.cursor_position
+        old_working_index = buffer.working_index
+
+        # Let prompt_toolkit handle: cursor down or next history entry
+        buffer.auto_down()
+
+        # If nothing changed, we're at the very bottom — open bg panel
+        if (buffer.text == old_text
+                and buffer.cursor_position == old_cursor
+                and buffer.working_index == old_working_index):
             app_instance.toggle_bg_panel()
-        else:
-            buffer.cursor_down()
 
     @kb.add("down", filter=is_bg_panel)
     def _(event):
