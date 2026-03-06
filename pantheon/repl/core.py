@@ -19,11 +19,9 @@ from rich.markdown import Markdown
 # prompt_toolkit for enhanced input
 from prompt_toolkit.patch_stdout import patch_stdout
 
-# Simple readline support for history (fallback)
+# readline support (fallback for ask_user_input only)
 try:
     import readline
-    import atexit
-
     READLINE_AVAILABLE = True
 except ImportError:
     READLINE_AVAILABLE = False
@@ -144,8 +142,8 @@ class Repl(ReplUI):
         self.command_history = []
         self.history_index = -1
 
-        # Setup input system
-        self._setup_input_system()
+        # Migrate legacy history format if needed, then load
+        self._migrate_history_if_needed()
         self._load_history()
 
         # Setup signal handlers for better interrupt handling
@@ -354,54 +352,123 @@ class Repl(ReplUI):
                 self.console.print(f"[red]Processing loop error: {e}[/red]")
                 await asyncio.sleep(1)
 
-    def _setup_input_system(self):
-        """Setup simple input system with readline history."""
-        if READLINE_AVAILABLE:
-            if self.history_file.exists():
-                try:
-                    readline.read_history_file(str(self.history_file))
-                except (OSError, FileNotFoundError):
-                    # Ignore errors from empty/corrupted/missing history files
-                    # (macOS libedit can throw EINVAL on empty files)
-                    pass
-            atexit.register(readline.write_history_file, str(self.history_file))
-            readline.set_history_length(1000)
-            readline.parse_and_bind("tab: complete")
-            readline.parse_and_bind("set completion-ignore-case on")
-            readline.set_startup_hook(None)
-            readline.set_pre_input_hook(None)
-            readline.parse_and_bind('"\\e[A": previous-history')
-            readline.parse_and_bind('"\\e[B": next-history')
+    def _migrate_history_if_needed(self):
+        """Migrate legacy or mixed-format history to clean FileHistory format.
+
+        Legacy format: one command per line (raw text).
+        FileHistory format: '# timestamp' header, then '+' prefixed lines per entry.
+
+        Handles mixed files by processing lines sequentially, preserving order.
+        """
+        if not self.history_file.exists():
+            return
+        try:
+            raw = self.history_file.read_bytes()
+            if not raw.strip():
+                return
+            text = raw.decode("utf-8", errors="replace")
+            lines = text.splitlines()
+
+            # Detect if migration is needed: any non-empty, non-comment, non-'+' lines
+            needs_migration = False
+            for line in lines:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                if not stripped.startswith("+"):
+                    needs_migration = True
+                    break
+
+            if not needs_migration:
+                return
+
+            # Parse mixed format sequentially to preserve order
+            commands = []
+            pending_plus_lines = []
+
+            def flush_plus():
+                if pending_plus_lines:
+                    cmd = "\n".join(pending_plus_lines)
+                    commands.append(cmd)
+                    pending_plus_lines.clear()
+
+            for line in lines:
+                if line.startswith("+"):
+                    pending_plus_lines.append(line[1:].rstrip("\r"))
+                elif line.startswith("#") or not line.strip():
+                    flush_plus()
+                else:
+                    flush_plus()
+                    cleaned = line.strip().strip("\r")
+                    if cleaned:
+                        commands.append(cleaned)
+            flush_plus()
+
+            # Filter out garbage (bare timestamps, '+' prefixed from broken migration)
+            clean = []
+            for cmd in commands:
+                if cmd.startswith("#") or cmd.startswith("+"):
+                    continue
+                clean.append(cmd)
+
+            # Deduplicate consecutive
+            deduped = []
+            for cmd in clean:
+                if not deduped or deduped[-1] != cmd:
+                    deduped.append(cmd)
+
+            # Rewrite in clean FileHistory format
+            with open(self.history_file, "wb") as f:
+                for cmd in deduped:
+                    f.write(b"\n# migrated\n")
+                    for cmd_line in cmd.split("\n"):
+                        f.write(f"+{cmd_line}\n".encode("utf-8"))
+
+            logger.debug(f"Migrated {len(deduped)} history entries to FileHistory format")
+        except Exception as e:
+            logger.debug(f"History migration skipped: {e}")
 
     def _load_history(self):
-        """Load command history from file."""
-        if self.history_file.exists():
-            try:
-                with open(self.history_file, "r", encoding="utf-8") as f:
-                    self.command_history = [
-                        line.strip() for line in f.readlines()[-100:]
-                    ]
-            except Exception:
-                self.command_history = []
-
-    def _save_history(self):
-        """Save command history to file."""
+        """Load command history from FileHistory-format file."""
+        from prompt_toolkit.history import FileHistory
         try:
-            with open(self.history_file, "a", encoding="utf-8") as f:
-                if self.command_history:
-                    f.write(self.command_history[-1] + "\n")
+            fh = FileHistory(str(self.history_file))
+            # load_history_strings returns newest-first, we want chronological
+            self.command_history = list(reversed(list(fh.load_history_strings())))
+            # Keep only last 500
+            if len(self.command_history) > 500:
+                self.command_history = self.command_history[-500:]
         except Exception:
-            pass
+            self.command_history = []
 
     def _add_to_history(self, command: str):
-        """Add command to history."""
+        """Add command to in-memory history list.
+
+        File persistence is handled by prompt_toolkit's FileHistory (via
+        buffer.append_to_history() in PantheonInputApp.accept_input).
+        This method only updates the in-memory list for /history display.
+        """
         command = command.strip()
-        if command and (
-            not self.command_history or self.command_history[-1] != command
-        ):
-            self.command_history.append(command)
-            self._save_history()
-            self.history_index = len(self.command_history)
+        if not command:
+            return
+        if self.command_history and self.command_history[-1] == command:
+            return
+        self.command_history.append(command)
+        self.history_index = len(self.command_history)
+
+    def _persist_to_history_file(self, command: str):
+        """Write a single command to the history file in FileHistory format.
+
+        Only needed for commands not submitted via prompt_toolkit (e.g. initial message).
+        """
+        try:
+            import datetime
+            with open(self.history_file, "ab") as f:
+                f.write(f"\n# {datetime.datetime.now()}\n".encode("utf-8"))
+                for line in command.split("\n"):
+                    f.write(f"+{line}\n".encode("utf-8"))
+        except Exception:
+            pass
 
     def ask_user_input(self) -> str:
         """Get user input with multi-line support and readline history."""
@@ -639,6 +706,7 @@ class Repl(ReplUI):
             set_level("ERROR")  # Only show ERROR level on console, file still captures all
 
         # Initialize
+        _resuming_chat = self._chat_id is not None  # Pre-set chat_id means resuming
         await self._setup()
         self.message_queue = asyncio.Queue()
 
@@ -674,7 +742,25 @@ class Repl(ReplUI):
             
             # Set prompt_app reference for task UI renderer
             self.task_ui_renderer.set_prompt_app(self.prompt_app)
-            
+
+            # If resuming a chat (chat_id was pre-set), load session history for ↑/↓
+            if _resuming_chat:
+                try:
+                    from pantheon.utils.misc import run_func
+                    memory = await run_func(self._chatroom.memory_manager.get_memory, self._chat_id)
+                    if memory:
+                        all_msgs = memory.get_messages(for_llm=False)
+                        user_inputs = [
+                            m["content"] for m in all_msgs
+                            if m.get("role") == "user" and isinstance(m.get("content"), str)
+                        ]
+                        if user_inputs:
+                            self.prompt_app.set_session_history(user_inputs)
+                            self.command_history = user_inputs.copy()
+                            self.history_index = len(self.command_history)
+                except Exception:
+                    pass
+
             # Note: Renderers will be re-initialized inside patch_stdout context in loop
 
         self._parent_repl = self
@@ -682,6 +768,7 @@ class Repl(ReplUI):
         # Handle initial message if provided
         if message is not None:
             self._add_to_history(message)
+            self._persist_to_history_file(message)
             self.message_queue.put_nowait(message)
 
         # Main concurrency setup
@@ -734,7 +821,7 @@ class Repl(ReplUI):
             # Clean up ChatRoom resources (saves skillbook via learning pipeline)
             await self._cleanup_resources()
 
-            # Suppress any remaining aiohttp warnings during GC
+            # Suppress any remaining aiohttp/SSL warnings during GC
             try:
                 loop = asyncio.get_event_loop()
                 loop.set_exception_handler(suppress_aiohttp_warnings)
@@ -743,6 +830,9 @@ class Repl(ReplUI):
 
             if self._use_prompt_toolkit:
                 self.output.exit_patch_context()
+
+            # Print resume hint after patch_stdout exits (direct to real terminal)
+            print("\033[2mResume this chat with: \033[1mpantheon cli --resume\033[0m")
 
             # Restore terminal state saved at REPL startup — prompt_toolkit
             # may leave terminal in raw mode if cleanup or async tasks
@@ -757,6 +847,14 @@ class Repl(ReplUI):
                     )
                 except Exception:
                     pass
+
+            # Suppress SSL transport errors during GC on Windows
+            # (asyncio ProactorEventLoop + aiohttp/httpx SSL connections)
+            import os
+            try:
+                sys.stderr = open(os.devnull, "w")
+            except Exception:
+                pass
 
     async def _handle_message_or_command(self, current_message: str):
         """Process a single message or command (extracted from run loop)."""
@@ -860,6 +958,9 @@ class Repl(ReplUI):
             return
 
         # Resume chat command
+        elif cmd_lower == "/resume":
+            await self._handle_list_chats()
+            return
         elif cmd_lower.startswith("/resume "):
             chat_arg = cmd[8:].strip()
             await self._handle_resume_chat(chat_arg)
@@ -1406,12 +1507,16 @@ class Repl(ReplUI):
         self.task_ui_renderer.reset()
         result = await self._chatroom.create_chat()
         self._chat_id = result["chat_id"]
+
+        # Revert ↑/↓ history to global file history
+        if self.prompt_app:
+            self.prompt_app.set_session_history(None)
+            self._load_history()
+
         self.console.print(
             f"[green]✅ Created new chat:[/green] {result.get('chat_name', self._chat_id)}"
         )
         self.console.print()
-
-
 
     async def _handle_list_chats(self):
         """List all chat sessions."""
@@ -1447,6 +1552,9 @@ class Repl(ReplUI):
                     self.console.print(
                         f"[dim]{marker}[/dim] [cyan]{idx:<3}[/cyan] [bold]{name:<30}[/bold] [dim]{last_activity:<18}[/dim] [dim]{chat_id}[/dim]"
                     )
+            self.console.print(
+                "[dim]  Use [bold]/resume <#>[/bold] or [bold]/resume <name>[/bold] to switch to a chat[/dim]"
+            )
             self.console.print()
         else:
             self.console.print(f"[red]Error listing chats: {result.get('message')}[/red]")
@@ -1548,6 +1656,24 @@ class Repl(ReplUI):
                         model = models
                 self.prompt_app.update_agent(first_agent_name)
                 self.prompt_app.update_model(model)
+
+        # Switch ↑/↓ history to this session's user inputs
+        if self.prompt_app:
+            try:
+                from pantheon.utils.misc import run_func
+                memory = await run_func(self._chatroom.memory_manager.get_memory, self._chat_id)
+                if memory:
+                    all_msgs = memory.get_messages(for_llm=False)
+                    user_inputs = [
+                        m["content"] for m in all_msgs
+                        if m.get("role") == "user" and isinstance(m.get("content"), str)
+                    ]
+                    self.prompt_app.set_session_history(user_inputs if user_inputs else None)
+                    # Update in-memory history list for /history display
+                    self.command_history = user_inputs.copy()
+                    self.history_index = len(self.command_history)
+            except Exception:
+                pass
 
         self.console.print(
             f"[green]✅ Resumed:[/green] {found.get('name', self._chat_id)}"
