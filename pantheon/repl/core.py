@@ -743,21 +743,25 @@ class Repl(ReplUI):
             # Set prompt_app reference for task UI renderer
             self.task_ui_renderer.set_prompt_app(self.prompt_app)
 
-            # If resuming a chat (chat_id was pre-set), load session history for ↑/↓
+            # If resuming a chat (chat_id was pre-set), load session history
+            _replay_msgs = None
             if _resuming_chat:
                 try:
                     from pantheon.utils.misc import run_func
                     memory = await run_func(self._chatroom.memory_manager.get_memory, self._chat_id)
                     if memory:
-                        all_msgs = memory.get_messages(for_llm=False)
+                        # Root-level user messages for ↑/↓ history
+                        root_msgs = memory.get_messages(execution_context_id=None, for_llm=False)
                         user_inputs = [
-                            m["content"] for m in all_msgs
+                            m["content"] for m in root_msgs
                             if m.get("role") == "user" and isinstance(m.get("content"), str)
                         ]
                         if user_inputs:
                             self.prompt_app.set_session_history(user_inputs)
                             self.command_history = user_inputs.copy()
                             self.history_index = len(self.command_history)
+                        # Save for replay after patch_stdout is active
+                        _replay_msgs = memory.get_messages(for_llm=False)
                 except Exception:
                     pass
 
@@ -789,6 +793,10 @@ class Repl(ReplUI):
                      # Use set_level instead of remove() to preserve file logging
                      from pantheon.utils.log import set_level
                      set_level(log_level)
+
+                     # Replay chat history if resuming (must be after renderers init + patch_stdout)
+                     if _replay_msgs:
+                         self._replay_chat_history(_replay_msgs)
 
                      # Create background processing task
                      processing_task = asyncio.create_task(self._processing_loop())
@@ -832,7 +840,7 @@ class Repl(ReplUI):
                 self.output.exit_patch_context()
 
             # Print resume hint after patch_stdout exits (direct to real terminal)
-            print("\033[2mResume this chat with: \033[1mpantheon cli --resume\033[0m")
+            print("\033[2mResume this chat with: \033[0m\033[2;36mpantheon cli --resume\033[0m")
 
             # Restore terminal state saved at REPL startup — prompt_toolkit
             # may leave terminal in raw mode if cleanup or async tasks
@@ -1657,26 +1665,29 @@ class Repl(ReplUI):
                 self.prompt_app.update_agent(first_agent_name)
                 self.prompt_app.update_model(model)
 
-        # Switch ↑/↓ history to this session's user inputs
-        if self.prompt_app:
-            try:
-                from pantheon.utils.misc import run_func
-                memory = await run_func(self._chatroom.memory_manager.get_memory, self._chat_id)
-                if memory:
-                    all_msgs = memory.get_messages(for_llm=False)
-                    user_inputs = [
-                        m["content"] for m in all_msgs
-                        if m.get("role") == "user" and isinstance(m.get("content"), str)
-                    ]
+        # Load session messages, switch ↑/↓ history, and replay chat
+        try:
+            from pantheon.utils.misc import run_func
+            memory = await run_func(self._chatroom.memory_manager.get_memory, self._chat_id)
+            if memory:
+                # Root-level user messages for ↑/↓ history
+                root_msgs = memory.get_messages(execution_context_id=None, for_llm=False)
+                user_inputs = [
+                    m["content"] for m in root_msgs
+                    if m.get("role") == "user" and isinstance(m.get("content"), str)
+                ]
+                if self.prompt_app:
                     self.prompt_app.set_session_history(user_inputs if user_inputs else None)
-                    # Update in-memory history list for /history display
-                    self.command_history = user_inputs.copy()
-                    self.history_index = len(self.command_history)
-            except Exception:
-                pass
+                self.command_history = user_inputs.copy()
+                self.history_index = len(self.command_history)
+                # Replay full chat history (all agents) to terminal
+                all_msgs = memory.get_messages(for_llm=False)
+                self._replay_chat_history(all_msgs)
+        except Exception:
+            pass
 
         self.console.print(
-            f"[green]✅ Resumed:[/green] {found.get('name', self._chat_id)}"
+            f"\n[green]✅ Resumed:[/green] {found.get('name', self._chat_id)}"
         )
         self.console.print()
 
