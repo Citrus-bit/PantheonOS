@@ -124,8 +124,9 @@ def main():
     # Import REAL functions — Fire reads their signatures for --help
     from pantheon.repl.__main__ import start as cli
     from pantheon.chatroom.start import start_services as ui
+    from pantheon.store.cli import StoreCLI
 
-    fire.Fire({"cli": cli, "ui": ui, "setup": setup, "update-templates": update_templates}, name="pantheon")
+    fire.Fire({"cli": cli, "ui": ui, "setup": setup, "update-templates": update_templates, "store": StoreCLI}, name="pantheon")
 
 
 if __name__ == "__main__":
