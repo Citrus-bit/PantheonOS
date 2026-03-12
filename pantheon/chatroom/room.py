@@ -1870,6 +1870,43 @@ class ChatRoom(ToolSet):
         return True, ""
 
     @tool
+    async def install_store_package(self, package_id: str, version: str = None) -> dict:
+        """Install a package from the Pantheon Store.
+
+        Args:
+            package_id: The ID of the package to install.
+            version: Optional specific version to install.
+        """
+        from pantheon.store.client import StoreClient
+        from pantheon.store.installer import PackageInstaller
+
+        try:
+            client = StoreClient()
+            dl = await client.download(package_id, version)
+            installer = PackageInstaller()
+            written = installer.install(
+                dl["type"], dl["name"], dl["content"], dl.get("files")
+            )
+            # Record install if logged in
+            try:
+                from pantheon.store.auth import StoreAuth
+                auth = StoreAuth()
+                if auth.is_logged_in:
+                    await client.record_install(package_id, dl["version"])
+            except Exception:
+                pass
+            return {
+                "success": True,
+                "name": dl["name"],
+                "type": dl["type"],
+                "version": dl["version"],
+                "installed_files": [str(p) for p in written],
+            }
+        except Exception as e:
+            logger.error(f"Error installing store package: {e}")
+            return {"success": False, "error": str(e)}
+
+    @tool
     async def reload_settings(self) -> dict:
         """Reload configuration settings from .env file and settings.json.
 
