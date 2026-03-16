@@ -53,21 +53,26 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        # ── Knowledge / vector DB (not needed for desktop chatroom) ──
-        'lancedb',
-        'lance',
-        'llama_index',
-        'qdrant_client',
-        # ── Testing / dev ──
-        'pytest',
-        'pytest_asyncio',
-        # ── Other unused heavy modules ──
-        'tkinter',
-        '_tkinter',
-        'torch',
-        'tensorflow',
-        'sklearn',
-        'cv2',
+        # ── Knowledge / vector DB (lancedb only used in RAG toolset, lazy import) ──
+        'lancedb', 'lance', 'pyarrow', 'llama_index', 'qdrant_client',
+        # ── Heavy transitive deps not directly imported ──
+        'scipy', 'scipy.libs',           # ~140MB, only SCFM toolset (lazy)
+        'patchright',                     # ~133MB, crawl4ai transitive
+        'networkx',                       # ~18MB, transitive
+        'fontTools',                      # ~27MB, matplotlib transitive
+        'shapely', 'shapely.libs',        # ~12MB, transitive
+        'alphashape',                     # transitive
+        'nltk', 'nltk_data',             # ~13MB, transitive
+        # ── Dev / build tools ──
+        'debugpy',                        # ~23MB, dev only
+        'pytest', 'pytest_asyncio',
+        'pip', 'setuptools', 'pkg_resources',
+        'PyInstaller', '_pyinstaller_hooks_contrib',
+        # ── Unused heavy modules ──
+        'tkinter', '_tkinter',
+        'torch', 'tensorflow', 'sklearn', 'cv2',
+        'IPython', 'ipywidgets',
+        'sympy',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
