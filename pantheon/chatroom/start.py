@@ -183,7 +183,7 @@ async def _start_endpoint_embedded(
 
     # Wait for endpoint to be ready
     logger.info("Waiting for Endpoint to be ready (embedded mode)")
-    max_retries = 30  # Max 3 seconds (30 * 0.1 second)
+    max_retries = 300  # Max 30 seconds (300 * 0.1 second)
     retry_count = 0
 
     while retry_count < max_retries:
