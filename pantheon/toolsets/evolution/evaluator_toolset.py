@@ -67,15 +67,20 @@ class EvaluatorToolSet(ToolSet):
         Args:
             code: The code to evaluate
             evaluator_code: Python code defining an `evaluate(workspace_path)` function
-                that returns a dict with metrics. Must include at least "combined_score".
+                that returns a dict with individual metrics and a `fitness_weights` dict.
+                The engine uses fitness_weights to compute the overall fitness score automatically.
+                Do NOT compute combined_score yourself.
                 Example:
                 ```python
                 def evaluate(workspace_path):
                     # Run tests, benchmarks, etc.
                     return {
-                        "combined_score": 0.85,
-                        "tests_passed": 10,
-                        "tests_total": 12,
+                        "correctness": 1.0,       # 0-1 range
+                        "performance": 0.9,       # 0-1 range
+                        "fitness_weights": {      # REQUIRED
+                            "correctness": 0.7,
+                            "performance": 0.3,
+                        },
                     }
                 ```
             filename: Name of the file to save the code as (default: "main.py")

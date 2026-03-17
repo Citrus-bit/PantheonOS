@@ -64,6 +64,8 @@ class EvolutionSession:
         self.current_iter: int = 0
         self.best_score: float = 0.0
         self.score_history: List[float] = []
+        self.failed_iterations: int = 0
+        self.last_error: Optional[str] = None  # Most recent iteration error
         
         # === Result Data ===
         self.initial_score: Optional[float] = None
@@ -76,27 +78,28 @@ class EvolutionSession:
         # === Caching ===
         self._cached_database = None
         self._last_db_load_time = 0.0
+        self._live_database = None  # In-memory database during active evolution
 
     def get_database(self, force_reload: bool = False):
-        """Get or load the EvolutionDatabase with caching"""
+        """Get the evolution database. Uses live in-memory DB if available, otherwise loads from disk."""
+        # Prefer live in-memory database (set during active evolution)
+        if self._live_database is not None:
+            return self._live_database
+
         from pantheon.evolution import EvolutionDatabase
-        
+
         if not self.workspace_path:
             return None
-            
+
         db_path = Path(self.workspace_path)
         state_file = db_path / "evolution_state.json"
-        
+
         if not state_file.exists():
             return None
 
-        # Reload if forced, not cached, or file changed essentially (checking mtime could be added here for more robustness)
-        # For now, we rely on the caller to pass force_reload=True if they know something changed,
-        # or we could check file mtime.
         should_reload = force_reload or self._cached_database is None
-        
+
         if not should_reload:
-            # Check if file has been modified since last load
             try:
                 mtime = state_file.stat().st_mtime
                 if mtime > self._last_db_load_time:
@@ -111,7 +114,7 @@ class EvolutionSession:
             except Exception as e:
                 logger.warning(f"Failed to load evolution database: {e}")
                 return None
-        
+
         return self._cached_database
     
     def to_dict(self) -> Dict[str, Any]:
@@ -141,6 +144,8 @@ class EvolutionSession:
             "current_iter": self.current_iter,
             "best_score": self.best_score,
             "score_history": self.score_history,
+            "failed_iterations": self.failed_iterations,
+            "last_error": self.last_error,
             # Result
             "initial_score": self.initial_score,
             "improvement": self.improvement,
@@ -182,6 +187,8 @@ class EvolutionSession:
         session.current_iter = data.get("current_iter", 0)
         session.best_score = data.get("best_score", 0.0)
         session.score_history = data.get("score_history", [])
+        session.failed_iterations = data.get("failed_iterations", 0)
+        session.last_error = data.get("last_error")
         # Result
         session.initial_score = data.get("initial_score")
         session.improvement = data.get("improvement")
@@ -473,16 +480,23 @@ class EvolutionToolSet(ToolSet):
             code: Initial code to optimize (string)
             
             evaluator_code: Python function: evaluate(workspace_path: str) -> Dict[str, float]
-                Must return: {"combined_score": 0.0-1.0, ...other_metrics}
+                MUST return individual metrics (0-1 range) AND a "fitness_weights" dict.
+                Do NOT compute combined_score yourself — the engine computes fitness automatically.
                 Example:
                 ```python
                 def evaluate(workspace_path):
                     import sys; sys.path.insert(0, workspace_path)
                     from main import func
-                    result = func(test_data)
-                    correct = (result == expected)
-                    speed = benchmark(func)  # 0-1 scale
-                    return {"combined_score": 0.8 * correct + 0.2 * speed}
+                    correct = float(func(test_data) == expected)  # 0 or 1
+                    speed = 1.0 / (1.0 + elapsed)  # 0-1 scale
+                    return {
+                        "correctness": correct,
+                        "speed": speed,
+                        "fitness_weights": {  # REQUIRED
+                            "correctness": 0.7,
+                            "speed": 0.3,
+                        },
+                    }
                 ```
             
             objective: Optimization goal (e.g., "Optimize for speed", "Reduce memory usage")
@@ -492,7 +506,7 @@ class EvolutionToolSet(ToolSet):
             
             islands: Evolution islands for diversity (default: 3, recommended: 3-5)
             
-            model: Mutation model (default: "normal", options: "normal", "fast", "smart")
+            model: Mutation model quality level (default: "normal", options: "high", "normal", "low")
             
             async_mode: Run in background (default: True, RECOMMENDED for iterations > 20)
                 True: Returns evolution_id immediately, monitor via get_evolution_status(evolution_id)
@@ -618,29 +632,33 @@ class EvolutionToolSet(ToolSet):
             codebase_path: Path to directory containing the codebase (must exist)
             
             evaluator_code: Python function: evaluate(workspace_path: str) -> Dict[str, float]
-                Must return: {"combined_score": 0.0-1.0, ...other_metrics}
+                MUST return individual metrics (0-1 range) AND a "fitness_weights" dict.
+                Do NOT compute combined_score yourself — the engine computes fitness automatically.
                 Should run project-level tests/benchmarks across all files.
                 Example:
                 ```python
                 def evaluate(workspace_path):
                     import subprocess, sys
                     sys.path.insert(0, workspace_path)
-                    
+
                     # Run test suite
                     result = subprocess.run(
                         ["python", "-m", "pytest", workspace_path],
                         capture_output=True, timeout=30, cwd=workspace_path
                     )
-                    tests_pass = result.returncode == 0
-                    
+                    tests_pass = float(result.returncode == 0)
+
                     # Run benchmarks
                     from benchmarks import run_benchmark
                     perf_score = run_benchmark()  # Returns 0-1
-                    
+
                     return {
-                        "combined_score": 0.7 * tests_pass + 0.3 * perf_score,
                         "tests_passed": tests_pass,
-                        "performance": perf_score
+                        "performance": perf_score,
+                        "fitness_weights": {  # REQUIRED
+                            "tests_passed": 0.7,
+                            "performance": 0.3,
+                        },
                     }
                 ```
             
@@ -653,7 +671,7 @@ class EvolutionToolSet(ToolSet):
             
             islands: Evolution islands (default: 3, recommended: 3-5)
             
-            model: Mutation model (default: "normal")
+            model: Mutation model quality level (default: "normal", options: "high", "normal", "low")
             
             output_path: Optional path to save optimized codebase
             
@@ -786,19 +804,32 @@ class EvolutionToolSet(ToolSet):
         
         try:
             # Define progress callback to update session state in real-time
-            def on_progress(iteration: int, best_score: float):
-                """Called periodically during evolution (every checkpoint_interval)"""
+            def on_progress(iteration: int, best_score: float, error: str = None):
+                """Called after each iteration (success or failure)"""
                 session.update_progress(iteration, best_score, auto_save=True)
+                if error:
+                    session.failed_iterations += 1
+                    session.last_error = error
                 logger.info(f"Evolution {evolution_id} progress: iteration={iteration}, score={best_score:.4f}")
             
             team = EvolutionTeam(config=config)
+            # Expose in-memory database for real-time visualization
+            session._live_database = team.database
+
+            def on_progress_with_db(iteration: int, best_score: float, error: str = None):
+                session._live_database = team.database
+                on_progress(iteration, best_score, error)
+
             result = await team.evolve(
                 initial_code=code,
                 evaluator_code=evaluator_code,
                 objective=objective,
-                progress_callback=on_progress,
+                progress_callback=on_progress_with_db,
             )
-            
+
+            # Clear live database, fall back to disk
+            session._live_database = None
+
             session.status = "completed"
             session.completed_at = time.time()
             session.best_score = result.best_score
@@ -870,18 +901,29 @@ class EvolutionToolSet(ToolSet):
         
         try:
             # Define progress callback
-            def on_progress(iteration, best_score):
+            def on_progress(iteration, best_score, error=None):
                 session.update_progress(iteration, best_score, auto_save=True)
+                if error:
+                    session.failed_iterations += 1
+                    session.last_error = error
                 logger.info(f"Codebase evolution {evolution_id} progress: iteration={iteration}, score={best_score:.4f}")
             
             team = EvolutionTeam(config=config)
+            session._live_database = team.database
+
+            def on_progress_with_db(iteration, best_score, error=None):
+                session._live_database = team.database
+                on_progress(iteration, best_score, error)
+
             result = await team.evolve(
                 initial_code=initial_snapshot,
                 evaluator_code=evaluator_code,
                 objective=objective,
-                progress_callback=on_progress,
+                progress_callback=on_progress_with_db,
             )
-            
+
+            session._live_database = None
+
             # Save result (unified model)
             session.status = "completed"
             session.completed_at = time.time()
@@ -1029,8 +1071,10 @@ class EvolutionToolSet(ToolSet):
             "best_score": session.best_score,
             "score_history": session.score_history,
             "error": session.error,
-            "file_count": len(session.files),  # ✅ New: file count
-            "has_html_report": has_html_report,  # ✅ New: HTML report availability
+            "failed_iterations": session.failed_iterations,
+            "last_error": session.last_error,
+            "file_count": len(session.files),
+            "has_html_report": has_html_report,
         }
         
         # Calculate improvements

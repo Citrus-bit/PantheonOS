@@ -23,7 +23,7 @@ class EvolutionConfig:
 
     # === Evolution Parameters ===
     max_iterations: int = 100
-    checkpoint_interval: int = 10
+    checkpoint_interval: int = 1  # Save every iteration for real-time UI updates
     early_stop_generations: int = 20  # Stop if no improvement for N generations
     num_workers: int = 1  # Number of parallel workers for evolution
 
@@ -32,7 +32,7 @@ class EvolutionConfig:
     migration_interval: int = 20
     migration_rate: float = 0.1
     feature_dimensions: List[str] = field(
-        default_factory=lambda: ["complexity", "diversity"]
+        default_factory=list  # Empty = auto-detect from evaluator metrics
     )
     feature_bins: int = 10
     feature_range_padding: float = 0.1  # Padding on observed min/max (10%)
@@ -98,7 +98,7 @@ class EvolutionConfig:
     db_path: Optional[str] = None  # Path to save database
     workspace_path: Optional[str] = None  # Path for evaluation workspaces
     save_prompts: bool = True
-    save_all_programs: bool = False  # Save all programs or just archive
+    save_all_programs: bool = True  # Save all programs for debugging and analysis
 
     # === Logging ===
     log_level: str = "INFO"

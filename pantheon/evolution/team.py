@@ -628,6 +628,22 @@ class EvolutionTeam:
                 # Update metric_ranges (for normalization in fitness_score)
                 self.database._update_metric_ranges(initial_program.metrics)
 
+            # Auto-detect feature_dimensions from evaluator metrics if not configured
+            if not self.config.feature_dimensions and fitness_weights:
+                metric_keys = [
+                    k for k in fitness_weights.keys()
+                    if k in initial_program.metrics and isinstance(initial_program.metrics[k], (int, float))
+                ]
+                if len(metric_keys) >= 2:
+                    self.config.feature_dimensions = metric_keys[:2]
+                    logger.info(f"Auto-detected feature dimensions from evaluator: {self.config.feature_dimensions}")
+                else:
+                    # Fallback to code-based features
+                    self.config.feature_dimensions = ["complexity", "diversity"]
+                    logger.info(f"Using default feature dimensions: {self.config.feature_dimensions}")
+            elif not self.config.feature_dimensions:
+                self.config.feature_dimensions = ["complexity", "diversity"]
+
             self.database.add(initial_program)
 
             initial_score = initial_program.fitness_score(
@@ -846,6 +862,9 @@ class EvolutionTeam:
                             error=str(e),
                         )
                     )
+                    # Notify progress callback about the failed iteration
+                    if self.progress_callback:
+                        self.progress_callback(iteration, best_score, error=str(e))
 
         # Finalize result
         result.total_iterations = len(result.iteration_results)

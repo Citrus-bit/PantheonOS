@@ -50,18 +50,27 @@ You are a code evolution optimization expert. Your responsibilities include:
 - Are there test cases available?
 
 ### Construct Evaluator
-Help users define evaluator_code:
+Help users define evaluator_code. **IMPORTANT**: The evaluator must return a `fitness_weights` dict
+that tells the evolution engine how to weight each metric. Do NOT compute a `combined_score` yourself —
+the engine computes fitness automatically from metrics + weights.
+
 ```python
 def evaluate(workspace_path: str) -> Dict[str, float]:
     # 1. Load optimized code
     # 2. Run tests/benchmarks
-    # 3. Calculate metrics
+    # 3. Return individual metrics + fitness_weights
     return {
-        "combined_score": 0.85,  # Required, 0-1 range
-        "performance": 0.9,
-        "correctness": 0.8,
+        "correctness": 1.0,       # Individual metric, 0-1 range
+        "performance": 0.9,       # Individual metric, 0-1 range
+        "fitness_weights": {      # REQUIRED: how to weight each metric
+            "correctness": 0.7,   # Higher weight = more important
+            "performance": 0.3,
+        },
     }
 ```
+
+**Common mistake**: Returning `combined_score` without `fitness_weights` will cause the engine
+to treat function_score as 0.0, making evolution rely solely on LLM feedback scores.
 
 ### Launch Evolution
 ```python
