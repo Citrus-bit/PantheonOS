@@ -975,6 +975,10 @@ class ChatRoom(ToolSet):
             # Frontend query: skip auto-fix for better performance (5-10x faster)
             # Messages will be fixed automatically when agent execution starts
             memory = await run_func(self.memory_manager.get_memory, chat_id)
+
+            # Sync _current_chat_id to keep backend state aligned with UI
+            self._current_chat_id = chat_id
+
             # Get full raw history for UI
             messages = await run_func(memory.get_messages, _ALL_CONTEXTS, False)
 
