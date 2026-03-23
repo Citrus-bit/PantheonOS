@@ -538,30 +538,83 @@ async def run_feishu_channel(*, bridge: Any, config: dict[str, Any], stop_event:
                 except Exception:
                     logger.exception("Feishu websocket event handling failed")
 
-            builder = lark.EventDispatcherHandler.builder(
-                str(config.get("encrypt_key") or ""),
-                str(config.get("verification_token") or ""),
-            )
-            event_handler = builder.register_p2_im_message_receive_v1(on_message).build()
-            ws_client = lark.ws.Client(
-                str(config.get("app_id") or ""),
-                str(config.get("app_secret") or ""),
-                event_handler=event_handler,
-                log_level=lark.LogLevel.INFO,
-            )
+            app_id = str(config.get("app_id") or "")
+            app_secret = str(config.get("app_secret") or "")
+            encrypt_key = str(config.get("encrypt_key") or "")
+            verification_token = str(config.get("verification_token") or "")
+
+            # ws_client must be created INSIDE the plain thread so that lark_oapi
+            # never captures the running asyncio event loop.  If created here
+            # (inside asyncio.run()), lark_oapi's Client.__init__ / start() calls
+            # asyncio.get_event_loop(), gets the already-running loop, and then
+            # loop.run_until_complete() raises "This event loop is already running".
+            ws_done = threading.Event()
+            ws_exc: list[BaseException] = []
+            ws_holder: list[Any] = []  # populated by run_ws before start()
+
+            def run_ws() -> None:
+                # lark_oapi/ws/client.py captures `asyncio.get_event_loop()` at
+                # module-import time as a module-level variable named `loop`.
+                # If the module was first imported inside asyncio.run(), that
+                # variable holds the already-running loop, so every subsequent
+                # loop.run_until_complete() call raises "This event loop is
+                # already running" — even from a plain thread.
+                # Fix: overwrite the module-level loop here, from a plain thread
+                # where no event loop is running, so lark_oapi gets a fresh loop.
+                import lark_oapi.ws.client as _lark_ws_client
+                _lark_ws_client.loop = asyncio.new_event_loop()
+
+                # Forward lark_oapi's "Lark" logger into our feishu logger so
+                # SDK output appears in the channel log panel in the UI.
+                class _LarkForwardHandler(logging.Handler):
+                    def emit(self, record: logging.LogRecord) -> None:
+                        logger.log(record.levelno, "[lark] %s", record.getMessage())
+
+                _lark_fwd = _LarkForwardHandler()
+                _lark_log = logging.getLogger("Lark")
+                _lark_log.addHandler(_lark_fwd)
+
+                builder = lark.EventDispatcherHandler.builder(encrypt_key, verification_token)
+                event_handler = builder.register_p2_im_message_receive_v1(on_message).build()
+                _ws = lark.ws.Client(
+                    app_id,
+                    app_secret,
+                    event_handler=event_handler,
+                    log_level=lark.LogLevel.INFO,
+                )
+                ws_holder.append(_ws)
+                try:
+                    _ws.start()
+                except Exception as exc:
+                    logger.exception("Feishu WebSocket client crashed: %s", exc)
+                    ws_exc.append(exc)
+                finally:
+                    _lark_log.removeHandler(_lark_fwd)
+                    ws_done.set()
 
             def stop_ws() -> None:
                 stop_event.wait()
-                try:
-                    ws_client._auto_reconnect = False
-                except Exception:
-                    pass
-                try:
-                    asyncio.run(ws_client._disconnect())
-                except Exception:
-                    pass
+                if ws_holder:
+                    try:
+                        ws_holder[0]._auto_reconnect = False
+                    except Exception:
+                        pass
+                    try:
+                        asyncio.run(ws_holder[0]._disconnect())
+                    except Exception:
+                        pass
 
+            ws_thread = threading.Thread(target=run_ws, daemon=True, name="pantheon-claw-feishu-ws")
             threading.Thread(target=stop_ws, daemon=True, name="pantheon-claw-feishu-ws-stop").start()
-            await asyncio.to_thread(ws_client.start)
+            ws_thread.start()
+
+            stop_task = asyncio.create_task(asyncio.to_thread(stop_event.wait))
+            done_task = asyncio.create_task(asyncio.to_thread(ws_done.wait))
+            _, pending = await asyncio.wait({stop_task, done_task}, return_when=asyncio.FIRST_COMPLETED)
+            for t in pending:
+                t.cancel()
+
+            if ws_exc:
+                raise ws_exc[0]
     finally:
         runtime.stop()
