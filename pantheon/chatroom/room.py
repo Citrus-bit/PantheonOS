@@ -753,6 +753,13 @@ class ChatRoom(ToolSet):
 
             # Inject workdir from project metadata if session is in isolated mode
             session_id = (args or {}).get("session_id") or getattr(self, '_current_chat_id', None)
+            # Special '__global__' session_id: explicitly use project root (clear any workdir)
+            if session_id == '__global__':
+                from pantheon.toolset import get_current_context_variables
+                ctx = get_current_context_variables()
+                if ctx is not None:
+                    ctx.pop("workdir", None)
+                session_id = None
             if session_id:
                 try:
                     memory = await run_func(self.memory_manager.get_memory, session_id)
