@@ -2300,10 +2300,12 @@ class ChatRoom(ToolSet):
             Dict with provider statuses including authentication state and account info.
         """
         from pantheon.utils.oauth import CodexOAuthManager
+        from pantheon.utils.oauth.codex import CODEX_CLI_AUTH
 
         codex = CodexOAuthManager()
         codex_authenticated = codex.is_authenticated()
         codex_account_id = codex.get_account_id() if codex_authenticated else None
+        cli_available = CODEX_CLI_AUTH.exists()
 
         return {
             "providers": {
@@ -2312,7 +2314,7 @@ class ChatRoom(ToolSet):
                     "account_id": codex_account_id,
                     "description": "OpenAI Codex (ChatGPT backend-api, free with ChatGPT Plus)",
                     "supports_browser_login": True,
-                    "supports_import": True,
+                    "supports_import": cli_available,
                 },
             },
         }
