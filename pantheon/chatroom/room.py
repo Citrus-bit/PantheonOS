@@ -1657,9 +1657,9 @@ class ChatRoom(ToolSet):
             bytes_data: The bytes data of the audio (bytes, base64 string, or list).
         """
         try:
-            import litellm
             import base64
-            from pantheon.utils.llm_providers import get_litellm_proxy_kwargs
+            from pantheon.utils.llm_providers import get_proxy_kwargs
+            from pantheon.utils.adapters import get_adapter
 
             logger.info(f"[STT] Received bytes_data type={type(bytes_data).__name__}, "
                         f"len={len(bytes_data) if hasattr(bytes_data, '__len__') else 'N/A'}")
@@ -1691,12 +1691,15 @@ class ChatRoom(ToolSet):
             audio_file = io.BytesIO(bytes_data)
             audio_file.name = "audio.webm"
 
-            logger.info("[STT] Calling litellm.atranscription...")
+            logger.info("[STT] Calling transcription adapter...")
+            proxy_kwargs = get_proxy_kwargs()
+            adapter = get_adapter("openai")
             response = await asyncio.wait_for(
-                litellm.atranscription(
+                adapter.atranscription(
                     model=self.speech_to_text_model,
                     file=audio_file,
-                    **get_litellm_proxy_kwargs(),
+                    base_url=proxy_kwargs.get("base_url"),
+                    api_key=proxy_kwargs.get("api_key"),
                 ),
                 timeout=30,
             )

@@ -21,10 +21,14 @@ from .log import logger
 
 
 class ProviderType(Enum):
-    """Supported LLM providers"""
+    """Supported LLM providers.
+
+    OPENAI: Direct OpenAI or OpenAI-compatible providers
+    LITELLM: Non-OpenAI providers (anthropic, gemini, etc.) — legacy name kept for compat
+    """
 
     OPENAI = "openai"
-    LITELLM = "litellm"
+    LITELLM = "litellm"  # Kept for backward compat; means "non-openai provider"
 
 
 @dataclass
@@ -35,10 +39,10 @@ class ProviderConfig:
     model_name: str
     base_url: Optional[str] = None
     api_key: Optional[str] = None
-    force_litellm: bool = False
+    force_litellm: bool = False  # Kept for backward compat
 
 
-# OpenAI-compatible providers that litellm doesn't natively support.
+# OpenAI-compatible providers that need custom base_url.
 # Maps provider prefix → (api_base_url, api_key_env_var)
 OPENAI_COMPATIBLE_PROVIDERS: dict[str, tuple[str, str]] = {}
 
@@ -132,12 +136,16 @@ def detect_provider(model: str, force_litellm: bool) -> ProviderConfig:
 def is_responses_api_model(config: ProviderConfig) -> bool:
     """Check if model should use the OpenAI Responses API instead of Chat Completions.
 
-    Currently triggers for OpenAI models with "codex" in the name (e.g. codex-mini-latest).
+    Triggers for:
+    - Models with "codex" in the name (e.g. codex-mini-latest)
+    - Pro models (gpt-5.x-pro, gpt-5.2-pro) which are Responses-only
     """
-    return (
-        config.provider_type == ProviderType.OPENAI
-        and "codex" in config.model_name.lower()
-    )
+    name_lower = config.model_name.lower()
+    if config.provider_type != ProviderType.OPENAI:
+        return False
+    # Strip "openai/" prefix for matching
+    bare = name_lower.split("/")[-1] if "/" in name_lower else name_lower
+    return "codex" in bare or bare.endswith("-pro")
 
 
 def get_base_url(provider: ProviderType) -> Optional[str]:
@@ -258,27 +266,39 @@ def _clean_message_fields(message: dict) -> None:
         message["tool_calls"] = None
 
 
-def get_litellm_proxy_kwargs() -> dict:
-    """Get LiteLLM proxy kwargs for API calls.
+def get_proxy_kwargs() -> dict:
+    """Get proxy kwargs for API calls.
 
-    When LITELLM_PROXY_ENABLED=true, returns {"api_base": ..., "api_key": ...}
-    to route calls through the LiteLLM Proxy. Otherwise returns empty dict.
-
-    Usage:
-        proxy_kwargs = get_litellm_proxy_kwargs()
-        response = await litellm.aimage_generation(model=model, ..., **proxy_kwargs)
-        response = await litellm.acompletion(model=model, ..., **proxy_kwargs)
+    When LLM_PROXY_ENABLED=true (or LITELLM_PROXY_ENABLED for backward compat),
+    returns {"base_url": ..., "api_key": ...} to route calls through a proxy.
+    Otherwise returns empty dict.
     """
     import os
 
-    proxy_enabled = os.environ.get("LITELLM_PROXY_ENABLED", "").lower() == "true"
-    proxy_url = os.environ.get("LITELLM_PROXY_URL")
-    proxy_key = os.environ.get("LITELLM_PROXY_KEY")
+    # Check new env vars first, fall back to legacy LITELLM_ prefix
+    proxy_enabled = (
+        os.environ.get("LLM_PROXY_ENABLED", "").lower() == "true"
+        or os.environ.get("LITELLM_PROXY_ENABLED", "").lower() == "true"
+    )
+    proxy_url = os.environ.get("LLM_PROXY_URL") or os.environ.get("LITELLM_PROXY_URL")
+    proxy_key = os.environ.get("LLM_PROXY_KEY") or os.environ.get("LITELLM_PROXY_KEY")
 
     if proxy_enabled and proxy_url and proxy_key:
-        logger.info(f"[LITELLM_PROXY] Routing through proxy | URL={proxy_url}")
-        return {"api_base": proxy_url, "api_key": proxy_key}
+        logger.info(f"[LLM_PROXY] Routing through proxy | URL={proxy_url}")
+        return {"base_url": proxy_url, "api_key": proxy_key}
 
+    return {}
+
+
+# Backward compatibility alias
+def get_litellm_proxy_kwargs() -> dict:
+    """Backward-compatible alias for get_proxy_kwargs().
+
+    Returns keys in old format: {"api_base": ..., "api_key": ...}
+    """
+    result = get_proxy_kwargs()
+    if result:
+        return {"api_base": result["base_url"], "api_key": result["api_key"]}
     return {}
 
 
@@ -305,13 +325,12 @@ def _extract_cost_and_usage(complete_resp: Any) -> tuple[float, dict]:
             except Exception:
                 pass
 
-    # Try to calculate cost (may fail for new/unmapped models)
+    # Calculate cost from catalog pricing
     try:
-        from litellm import completion_cost
+        from pantheon.utils.provider_registry import completion_cost
 
         cost = completion_cost(completion_response=complete_resp) or 0.0
     except Exception as e:
-        # DEBUG level: this is expected for new models not yet in litellm's price map
         logger.debug(f"Cost calculation unavailable: {e}")
 
     # Fallback: estimate cost from usage if litellm failed but we have token counts
@@ -450,7 +469,6 @@ async def call_llm_provider(
     Returns:
         Extracted and cleaned message dictionary
     """
-    # Import here to avoid circular imports
     from .llm import (
         acompletion_litellm,
         remove_metadata,

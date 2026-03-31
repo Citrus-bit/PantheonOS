@@ -386,18 +386,15 @@ class StopRunning(Exception):
 
 def _is_retryable_error(error: Exception) -> bool:
     """Determine if an LLM API error is transient and worth retrying."""
-    try:
-        from litellm.exceptions import (
-            ServiceUnavailableError,
-            InternalServerError,
-            RateLimitError,
-            APIConnectionError,
-        )
-        if isinstance(error, (ServiceUnavailableError, InternalServerError,
-                              RateLimitError, APIConnectionError)):
-            return True
-    except ImportError:
-        pass
+    from pantheon.utils.adapters.base import (
+        ServiceUnavailableError,
+        InternalServerError,
+        RateLimitError,
+        APIConnectionError,
+    )
+    if isinstance(error, (ServiceUnavailableError, InternalServerError,
+                          RateLimitError, APIConnectionError)):
+        return True
     # Fallback: string matching for common transient error indicators
     error_str = str(error).lower()
     return any(kw in error_str for kw in (
@@ -1479,6 +1476,9 @@ class Agent:
                 model_params=model_params,
             )
 
+        if message is None:
+            message = {"role": "assistant", "content": "Error: Empty response from model."}
+
         # Step 8: Add metadata to message
         end_timestamp = time.time()
         total_time = tracker.end("total")
@@ -1603,6 +1603,8 @@ class Agent:
                     raise
                 except Exception as e:
                     last_error = e
+                    import traceback
+                    logger.error(f"[Agent:{self.name}] Full traceback:\n{traceback.format_exc()}")
 
                     if _is_retryable_error(e) and attempt < max_retries:
                         delay = min(base_delay * (2 ** attempt), max_delay)

@@ -120,7 +120,7 @@ class ContextCompressor:
             # Fallback: try to fetch from model info if available
             if model:
                 try:
-                    from litellm.utils import get_model_info
+                    from pantheon.utils.provider_registry import get_model_info
 
                     info = get_model_info(model)
                     max_tokens = (info.get("max_input_tokens") or 0) + (
