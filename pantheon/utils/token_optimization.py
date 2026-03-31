@@ -707,11 +707,24 @@ def build_recent_context_block(
     return "\n\n".join(blocks)
 
 
+ON_DEMAND_HINT = (
+    "Note: Only a summary and recent context are provided above. "
+    "If you need the full content of any referenced file or tool output, "
+    "use read_file or the appropriate tool to retrieve it on demand."
+)
+
+
 def build_delegation_context_message(
     history: list[dict],
     instruction: str,
     summary_text: str | None = None,
 ) -> str:
+    """Build a compact delegation prompt from summary + recent context + file refs.
+
+    The *history* passed here should already be trimmed to a recent tail by the
+    caller (``create_delegation_task_message``).  Older context is represented
+    by *summary_text*.
+    """
     projected = build_llm_view(history, is_main_thread=False)
     parts: list[str] = []
     if summary_text:
@@ -724,10 +737,16 @@ def build_delegation_context_message(
     file_paths = extract_persisted_file_paths(projected)
     if file_paths:
         parts.append(
-            "Referenced Files:\n" + "\n".join(f"- {path}" for path in file_paths[:10])
+            "Referenced Files (retrieve on demand if needed):\n"
+            + "\n".join(f"- {path}" for path in file_paths[:10])
         )
 
     parts.append(f"Task: {instruction}")
+
+    # Append on-demand retrieval hint when summary was used
+    if summary_text:
+        parts.append(ON_DEMAND_HINT)
+
     return "\n\n".join(parts)
 
 

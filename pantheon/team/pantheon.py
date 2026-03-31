@@ -294,7 +294,7 @@ class PantheonTeam(Team):
     def __init__(
         self,
         agents: list[Agent | RemoteAgent],
-        use_summary: bool = False,
+        use_summary: bool = True,
         max_delegate_depth: int | None = 5,
         allow_transfer: bool = False,
         plugins: Optional[List["TeamPlugin"]] = None,
@@ -303,8 +303,9 @@ class PantheonTeam(Team):
 
         Args:
             agents: List of agents in the team.
-            use_summary: If True, generate and prepend context summary
-                         when delegating tasks.
+            use_summary: If True (default), generate summary + recent context
+                         instead of full history for delegation. Set to False
+                         to pass only the raw instruction.
             max_delegate_depth: Maximum depth for nested call_agent calls.
             allow_transfer: If True, add transfer_to_agent tool to agents.
             plugins: Optional list of TeamPlugin instances for extending functionality.
@@ -710,20 +711,34 @@ class PantheonTeam(Team):
 
 
 
+DELEGATION_RECENT_TAIL_SIZE = 20
+
+
 async def create_delegation_task_message(
     history: list[dict],
     instruction: str,
     use_summary: bool = True,
 ) -> str | None:
-    """Create a delegated task message with optional summary context."""
+    """Create a delegated task message with summary-first, on-demand-detail strategy.
+
+    When *use_summary* is True (default):
+      1. Generate a compact LLM summary of the full history.
+      2. Pass only the **recent tail** of the history to
+         ``build_delegation_context_message`` — this avoids embedding the entire
+         parent conversation in the child prompt.
+      3. Append an on-demand hint so the child agent knows it can retrieve
+         full tool outputs from disk if needed.
+
+    When *use_summary* is False (explicit opt-out):
+      Only the raw *instruction* is returned — no history or summary.
+    """
     if not instruction:
         return None
 
-    # If summary is disabled, the instruction is the entire content.
     if not use_summary:
         return instruction
 
-    # Default behavior: Summarize history and append the instruction.
+    # --- summary-first: generate compact summary from full history -----------
     summary_text = None
     if history:
         try:
@@ -734,10 +749,14 @@ async def create_delegation_task_message(
         except Exception as e:
             logger.warning(f"Failed to generate summary for delegation: {e}")
 
+    # --- only pass the recent tail to build_delegation_context_message --------
+    # The summary covers older context; recent messages provide necessary detail.
+    recent_history = history[-DELEGATION_RECENT_TAIL_SIZE:] if history else []
+
     from pantheon.utils.token_optimization import build_delegation_context_message
 
     return build_delegation_context_message(
-        history=history,
+        history=recent_history,
         instruction=instruction,
         summary_text=summary_text,
     )

@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pantheon.agent import Agent, AgentRunContext
 from pantheon.internal.memory import Memory
 from pantheon.team.pantheon import (
+    PantheonTeam,
     _get_cache_safe_child_fork_context_messages,
     _get_cache_safe_child_run_overrides,
     create_delegation_task_message,
@@ -16,6 +17,7 @@ from pantheon.utils.token_optimization import (
     apply_token_optimizations,
     apply_tool_result_budget,
     build_cache_safe_runtime_params,
+    build_delegation_context_message,
     build_llm_view,
     evaluate_time_based_trigger,
     estimate_total_tokens_from_chars,
@@ -470,5 +472,111 @@ def test_create_delegation_task_message_uses_recent_context_and_file_refs(monkey
 
     assert "Context Summary:\nshort summary" in task_message
     assert "Recent Context:" in task_message
-    assert "Referenced Files:\n- /tmp/tool-1.txt" in task_message
-    assert task_message.endswith("Task: Find the root cause")
+    assert "Referenced Files (retrieve on demand if needed):\n- /tmp/tool-1.txt" in task_message
+    assert "Task: Find the root cause" in task_message
+    # On-demand hint is appended when summary is present
+    assert "retrieve it on demand" in task_message
+
+
+def test_create_delegation_task_message_use_summary_false_returns_raw_instruction(monkeypatch):
+    """When use_summary=False, only the raw instruction is returned."""
+    import asyncio
+
+    result = asyncio.run(
+        create_delegation_task_message(
+            history=[{"role": "user", "content": "hello"}],
+            instruction="Do something",
+            use_summary=False,
+        )
+    )
+    assert result == "Do something"
+
+
+def test_create_delegation_task_message_trims_history_to_recent_tail(monkeypatch):
+    """Only the most recent messages are passed to build_delegation_context_message."""
+    from pantheon.team.pantheon import DELEGATION_RECENT_TAIL_SIZE
+
+    captured = {}
+
+    original_build = build_delegation_context_message
+
+    def spy_build(history, instruction, summary_text=None):
+        captured["history_len"] = len(history)
+        return original_build(
+            history=history,
+            instruction=instruction,
+            summary_text=summary_text,
+        )
+
+    monkeypatch.setattr(
+        "pantheon.utils.token_optimization.build_delegation_context_message",
+        spy_build,
+    )
+
+    class FakeSummaryGenerator:
+        async def generate_summary(self, history, max_tokens=1000):
+            captured["summary_input_len"] = len(history)
+            return "summary"
+
+    monkeypatch.setattr(
+        "pantheon.chatroom.special_agents.get_summary_generator",
+        lambda: FakeSummaryGenerator(),
+    )
+
+    # Create a history larger than DELEGATION_RECENT_TAIL_SIZE
+    big_history = [
+        {"role": "user", "content": f"message {i}"}
+        for i in range(DELEGATION_RECENT_TAIL_SIZE + 30)
+    ]
+
+    import asyncio
+
+    asyncio.run(
+        create_delegation_task_message(
+            history=big_history,
+            instruction="Analyze",
+            use_summary=True,
+        )
+    )
+
+    # Summary generator sees full history
+    assert captured["summary_input_len"] == len(big_history)
+    # build_delegation_context_message only sees the recent tail
+    assert captured["history_len"] == DELEGATION_RECENT_TAIL_SIZE
+
+
+def test_create_delegation_no_on_demand_hint_without_summary(monkeypatch):
+    """When summary generation fails, on-demand hint is not appended."""
+    class FailingSummaryGenerator:
+        async def generate_summary(self, history, max_tokens=1000):
+            raise RuntimeError("LLM unavailable")
+
+    monkeypatch.setattr(
+        "pantheon.chatroom.special_agents.get_summary_generator",
+        lambda: FailingSummaryGenerator(),
+    )
+
+    import asyncio
+
+    result = asyncio.run(
+        create_delegation_task_message(
+            history=[{"role": "user", "content": "hello"}],
+            instruction="Do something",
+            use_summary=True,
+        )
+    )
+    # No summary means no on-demand hint
+    assert "retrieve it on demand" not in result
+    assert "Task: Do something" in result
+
+
+def test_pantheon_team_use_summary_defaults_to_true():
+    """PantheonTeam defaults to use_summary=True for summary-first delegation."""
+    from unittest.mock import MagicMock
+
+    agent = MagicMock()
+    agent.name = "test-agent"
+    agent.models = ["gpt-4"]
+
+    team = PantheonTeam(agents=[agent])
+    assert team.use_summary is True
