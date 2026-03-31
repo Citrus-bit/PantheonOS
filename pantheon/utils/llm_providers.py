@@ -495,7 +495,21 @@ async def call_llm_provider(
     clean_messages = remove_metadata(clean_messages)
 
     # Call appropriate provider
-    # Route codex models through the OpenAI Responses API
+    # Route Codex OAuth models through their dedicated adapter
+    if "codex/" in config.model_name.lower() or config.model_name.startswith("codex/"):
+        from .llm import acompletion
+        logger.debug(f"[CALL_LLM_PROVIDER] Using Codex OAuth for model={config.model_name}")
+        # acompletion handles codex specially — returns message dict directly
+        return await acompletion(
+            messages=clean_messages,
+            model=config.model_name,
+            tools=tools,
+            response_format=response_format,
+            process_chunk=process_chunk,
+            model_params=model_params,
+        )
+
+    # Route codex/pro models through the OpenAI Responses API
     if is_responses_api_model(config):
         from .llm import acompletion_responses
 

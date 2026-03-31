@@ -36,6 +36,9 @@ def get_adapter(sdk_type: str) -> BaseAdapter:
     elif sdk_type == "google-genai":
         from .gemini_adapter import GeminiAdapter
         return GeminiAdapter()
+    elif sdk_type == "codex":
+        from .codex_adapter import CodexAdapter
+        return CodexAdapter()
     else:
         # Default to OpenAI adapter for unknown SDK types
         # (many providers are OpenAI-compatible)

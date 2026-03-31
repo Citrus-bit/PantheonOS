@@ -570,6 +570,18 @@ async def acompletion(
         effective_api_key = proxy_kwargs.get("api_key")
         sdk_type = "openai"  # proxy exposes OpenAI-compatible API
         effective_model = model  # pass full model string to proxy
+    elif sdk_type == "codex":
+        # Codex OAuth: get access token from OAuth manager
+        from .oauth import CodexOAuthManager
+        oauth = CodexOAuthManager()
+        effective_api_key = oauth.get_access_token(auto_refresh=True)
+        if not effective_api_key:
+            raise RuntimeError(
+                "Codex OAuth not authenticated. Run CodexOAuthManager().login() "
+                "or import tokens from Codex CLI with CodexOAuthManager().import_from_codex_cli()"
+            )
+        effective_base_url = provider_config.get("base_url")
+        effective_model = model_name
     else:
         effective_base_url = base_url or provider_config.get("base_url")
         effective_api_key = api_key
@@ -584,6 +596,13 @@ async def acompletion(
 
     # ========== Prepare adapter kwargs ==========
     adapter_kwargs = dict(model_params or {})
+
+    # Codex OAuth: pass account_id for chatgpt-account-id header
+    if sdk_type == "codex":
+        from .oauth import CodexOAuthManager
+        account_id = CodexOAuthManager().get_account_id()
+        if account_id:
+            adapter_kwargs["account_id"] = account_id
 
     # Kimi Coding API gates access by User-Agent header
     if "kimi-for-coding" in model:
@@ -618,6 +637,10 @@ async def acompletion(
         raise
 
     # ========== Build complete response ==========
+    # Codex adapter returns a message dict directly (not chunks)
+    if sdk_type == "codex" and isinstance(collected_chunks, dict):
+        return collected_chunks  # Already a normalized message dict
+
     complete_resp = stream_chunk_builder(collected_chunks)
 
     # Calculate and attach cost information
