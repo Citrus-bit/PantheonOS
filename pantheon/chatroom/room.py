@@ -1609,7 +1609,20 @@ class ChatRoom(ToolSet):
 
             # Publish chat finished message if NATS streaming enabled
             if self._nats_adapter is not None:
-                await self._nats_adapter.publish_chat_finished(chat_id)
+                resp = thread.response or {}
+                if resp.get("success") is False:
+                    # Send error to frontend so it can display to user
+                    error_msg = resp.get("message", "Unknown error")
+                    await self._nats_adapter.publish(
+                        chat_id, "chat_finished",
+                        {
+                            "type": "chat_finished",
+                            "status": "error",
+                            "metadata": {"message": error_msg},
+                        },
+                    )
+                else:
+                    await self._nats_adapter.publish_chat_finished(chat_id)
 
             return thread.response
         except asyncio.CancelledError:
@@ -1939,6 +1952,9 @@ class ChatRoom(ToolSet):
             from pantheon.utils.model_selector import get_model_selector
 
             selector = get_model_selector()
+            # Clear provider cache so dynamic providers (Ollama, OAuth) are re-detected
+            selector._available_providers = None
+            selector._detected_provider = None
             return selector.list_available_models()
         except Exception as e:
             logger.error(f"Error listing available models: {e}")
@@ -2395,3 +2411,21 @@ class ChatRoom(ToolSet):
         except Exception as e:
             logger.error(f"OAuth import failed: {e}")
             return {"success": False, "error": str(e)}
+
+    @tool
+    async def ollama_status(self, url: str = "http://localhost:11434") -> dict:
+        """Check Ollama server status and list available models.
+
+        Args:
+            url: Ollama server URL (default: http://localhost:11434)
+
+        Returns:
+            Dict with running status, model list, and URL.
+        """
+        try:
+            from pantheon.utils.model_selector import _detect_ollama, _list_ollama_models
+            running = _detect_ollama(url)
+            models = _list_ollama_models(url) if running else []
+            return {"running": running, "models": models, "url": url}
+        except Exception as e:
+            return {"running": False, "models": [], "url": url}
