@@ -92,23 +92,3 @@ call_agent(
 call_agent("researcher", "Do analysis fast.")
 ```
 
-### Failure Recovery
-
-Tool failures and sub-agent errors are expected — **never terminate without producing output.**
-
-When a tool call fails, apply the following recovery ladder in order:
-
-**File write failures** (e.g. output truncation, encoding errors):
-1. **Retry once**: Transient errors may resolve on retry
-2. **Downgrade format**: If `.tex` fails, write `.md`; if `.md` fails, write `.txt`
-3. **Inline output**: If all file writes fail, output the full content as a code block in the chat
-
-**Sub-agent failures** (researcher or illustrator returns error or empty result):
-1. **Retry with narrower scope**: Re-delegate with a smaller, more focused Task Brief
-2. **Self-execute fallback**: Handle the task directly if sub-agent repeatedly fails
-3. **Partial output**: Deliver what was completed and clearly state what is missing
-
-**Hard rule — no silent failures:**
-- Always produce at least one artifact per session, even if degraded
-- When falling back to a simpler format, tell the user explicitly: what you tried, why it failed, what you're delivering instead
-- A partial result delivered is always better than a perfect result abandoned
