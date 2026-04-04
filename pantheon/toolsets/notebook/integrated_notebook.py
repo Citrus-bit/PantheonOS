@@ -301,20 +301,69 @@ class IntegratedNotebookToolSet(ToolSet):
         """Get existing context (without creating)"""
         return self.notebook_contexts.get((notebook_path, session_id))
 
-    async def _get_cell_by_id(
-        self, notebook_path: str, cell_id: str
-    ) -> tuple[Optional[int], Optional[dict]]:
-        """Get cell index and data by cell_id"""
+    async def _resolve_cell(
+        self,
+        notebook_path: str,
+        cell_id: str,
+        source_hint: str | None = None,
+    ) -> tuple[Optional[int], Optional[dict], Optional[str]]:
+        """Resolve a cell reference, with automatic ID assignment and source fallback.
+
+        Resolution order:
+        1. Read notebook and ensure all cells have stable IDs (auto-assign if missing)
+        2. Exact cell_id match
+        3. source_hint fallback (unique match required)
+        4. Return structured error with available cells
+
+        Returns:
+            (cell_index, cell_data, error_message)
+            On success: (index, cell, None)
+            On failure: (None, None, "error string with available cells")
+        """
         read_result = await self.notebook_contents.read_notebook(notebook_path)
         if not read_result["success"]:
-            return None, None
+            return None, None, read_result.get("error", "Failed to read notebook")
 
-        cells = read_result["notebook"]["cells"]
-        for idx, cell in enumerate(cells):
-            if cell.get("id") == cell_id:
-                return idx, cell
+        notebook = read_result["notebook"]
+        resolved_path = read_result.get("file_path")
 
-        return None, None
+        # Auto-assign stable IDs to cells that lack them, then persist once
+        if resolved_path and any(
+            not cell.get("id") for cell in notebook.get("cells", [])
+        ):
+            changed = await self.notebook_contents._ensure_cell_ids_and_upgrade(
+                Path(resolved_path), notebook
+            )
+            if changed:
+                await self.notebook_contents._save_notebook(Path(resolved_path), notebook)
+
+        # Delegate to low-level _find_cell (supports source_hint fallback)
+        idx, cell = self.notebook_contents._find_cell(notebook, cell_id, source_hint)
+        if idx is not None:
+            return idx, cell, None
+
+        # Build informative error with available cells
+        cells = notebook.get("cells", [])
+        cell_summaries = []
+        for i, c in enumerate(cells):
+            cid = c.get("id", "?")
+            src = self.notebook_contents._format_source(c.get("source", ""))
+            preview = src[:60].replace("\n", " ")
+            if len(src) > 60:
+                preview += "..."
+            cell_summaries.append(f"  [{i}] {cid}: {preview}")
+
+        available = "\n".join(cell_summaries[:15])
+        hint = (
+            " You MUST call read_cells first to get current cell IDs."
+            if not source_hint
+            else " The source_hint also did not match any cell uniquely."
+        )
+        error = (
+            f"Cell '{cell_id}' not found.{hint}\n"
+            f"Available cells ({len(cells)}):\n{available}"
+        )
+        return None, None, error
 
     def _validate_cell_id(self, cell_id: str) -> tuple[bool, str]:
         """
@@ -385,10 +434,14 @@ class IntegratedNotebookToolSet(ToolSet):
             context = await self._get_or_create_context(notebook_path, session_id)
 
             # Find existing cell
-            cell_index, cell_data = await self._get_cell_by_id(notebook_path, cell_id)
-
+            cell_index, cell_data, resolve_error = await self._resolve_cell(
+                notebook_path, cell_id
+            )
             if cell_index is None:
-                return {"success": False, "error": f"Cell {cell_id} not found"}
+                return {"success": False, "error": resolve_error}
+
+            # Use canonical cell_id from the resolved cell
+            cell_id = cell_data.get("id", cell_id)
 
             # Get existing code from cell
             if cell_data and "source" in cell_data:
@@ -698,9 +751,14 @@ class IntegratedNotebookToolSet(ToolSet):
                 context = self._get_context(notebook_path, session_id) if session_id else None
 
                 # Read cell data for partial replacement and cell type check
-                cell_index, cell_data = await self._get_cell_by_id(notebook_path, cell_id)
+                cell_index, cell_data, resolve_error = await self._resolve_cell(
+                    notebook_path, cell_id, source_hint=old_content
+                )
                 if cell_index is None:
-                    return {"success": False, "error": f"Cell {cell_id} not found"}
+                    return {"success": False, "error": resolve_error}
+
+                # Use canonical cell_id from the resolved cell
+                cell_id = cell_data.get("id", cell_id)
                 
                 cell_type = cell_data.get("cell_type", "code") if cell_data else "code"
                 replacement_count = None
@@ -785,10 +843,18 @@ class IntegratedNotebookToolSet(ToolSet):
                 # Get context if exists (don't create kernel for simple edit)
                 context = self._get_context(notebook_path, session_id) if session_id else None
 
+                # Resolve cell_id (handles stale IDs, auto-assigns missing IDs)
+                _, cell_data, resolve_error = await self._resolve_cell(
+                    notebook_path, cell_id
+                )
+                if resolve_error:
+                    return {"success": False, "error": resolve_error}
+                canonical_id = cell_data.get("id", cell_id)
+
                 # Call notebook_contents API
                 result = await self.notebook_contents.delete_cell(
                     path=notebook_path,
-                    cell_id=cell_id,
+                    cell_id=canonical_id,
                 )
 
                 # Add context information only if context exists
@@ -832,11 +898,28 @@ class IntegratedNotebookToolSet(ToolSet):
                 # Get context if exists (don't create kernel for simple edit)
                 context = self._get_context(notebook_path, session_id) if session_id else None
 
+                # Resolve cell references (handles stale IDs, auto-assigns missing IDs)
+                _, cell_data, resolve_error = await self._resolve_cell(
+                    notebook_path, cell_id
+                )
+                if resolve_error:
+                    return {"success": False, "error": resolve_error}
+                canonical_id = cell_data.get("id", cell_id)
+
+                canonical_below_id = below_cell_id
+                if below_cell_id:
+                    _, below_data, resolve_error = await self._resolve_cell(
+                        notebook_path, below_cell_id
+                    )
+                    if resolve_error:
+                        return {"success": False, "error": resolve_error}
+                    canonical_below_id = below_data.get("id", below_cell_id)
+
                 # Call notebook_contents API
                 result = await self.notebook_contents.move_cell(
                     path=notebook_path,
-                    cell_id=cell_id,
-                    below_cell_id=below_cell_id,
+                    cell_id=canonical_id,
+                    below_cell_id=canonical_below_id,
                 )
 
                 # Add context information only if context exists
@@ -906,6 +989,17 @@ class IntegratedNotebookToolSet(ToolSet):
             return read_result
 
         notebook = read_result["notebook"]
+        resolved_path = read_result.get("file_path")
+
+        # Auto-assign stable IDs to cells that lack them
+        if resolved_path and any(
+            not cell.get("id") for cell in notebook.get("cells", [])
+        ):
+            changed = await self.notebook_contents._ensure_cell_ids_and_upgrade(
+                Path(resolved_path), notebook
+            )
+            if changed:
+                await self.notebook_contents._save_notebook(Path(resolved_path), notebook)
 
         # Get context if exists
         context = self._get_context(notebook_path, session_id) if session_id else None
