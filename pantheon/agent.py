@@ -390,18 +390,15 @@ class StopRunning(Exception):
 
 def _is_retryable_error(error: Exception) -> bool:
     """Determine if an LLM API error is transient and worth retrying."""
-    try:
-        from litellm.exceptions import (
-            ServiceUnavailableError,
-            InternalServerError,
-            RateLimitError,
-            APIConnectionError,
-        )
-        if isinstance(error, (ServiceUnavailableError, InternalServerError,
-                              RateLimitError, APIConnectionError)):
-            return True
-    except ImportError:
-        pass
+    from pantheon.utils.adapters.base import (
+        ServiceUnavailableError,
+        InternalServerError,
+        RateLimitError,
+        APIConnectionError,
+    )
+    if isinstance(error, (ServiceUnavailableError, InternalServerError,
+                          RateLimitError, APIConnectionError)):
+        return True
     # Fallback: string matching for common transient error indicators
     error_str = str(error).lower()
     return any(kw in error_str for kw in (
@@ -491,7 +488,7 @@ class Agent:
         memory: The memory to use for the agent.
             If not provided, a new memory will be created.
         tool_timeout: The timeout for the tool. (default: from settings.endpoint.local_toolset_timeout, or 3600s)
-        force_litellm: Whether to force using LiteLLM. (default: False)
+        relaxed_schema: Use relaxed (non-strict) tool schema mode. (default: False)
         max_tool_content_length: The maximum length of the tool content. (default: 100000)
         description: The description of the agent. (default: None)
         think_tool: Whether to enable the think tool for structured reasoning. (default: False)
@@ -509,7 +506,7 @@ class Agent:
         use_memory: bool = True,
         memory: "Memory | None" = None,
         tool_timeout: int | None = None,
-        force_litellm: bool = False,
+        relaxed_schema: bool = False,
         max_tool_content_length: int | None = None,
         description: str | None = None,
         think_tool: bool = False,
@@ -563,7 +560,7 @@ class Agent:
         # Input queue for run_loop() — messages/notifications enter here
         self.input_queue: asyncio.Queue = asyncio.Queue()
         self._loop_running: bool = False
-        self.force_litellm = force_litellm
+        self.relaxed_schema = relaxed_schema
         self.icon = icon
 
         # Provider management (MCP, ToolSet, etc.)
@@ -875,15 +872,14 @@ class Agent:
         """
         # 1. Get tools from _base_functions (Agent's own tools - no prefix)
         base_tools = self._convert_functions(
-            litellm_mode=self.force_litellm, allow_transfer=True
+            relaxed_schema=self.relaxed_schema, allow_transfer=True
         )
 
         # 2. Get tools from providers (dynamic retrieval - uses provider caching)
         # Providers return ToolInfo with pre-generated inputSchema (the "function" part)
         logger.debug(f"get tools for llm: {self.providers} ")
         provider_tools = []
-        for provider_name in sorted(self.providers):
-            provider = self.providers[provider_name]
+        for provider_name, provider in self.providers.items():
             try:
                 # Get tools from provider (uses cached list if available)
                 tools = await provider.list_tools()
@@ -949,9 +945,8 @@ class Agent:
                     "You'll get a task_id to track progress via background_task()."
                 ),
             }
-            # In strict mode (non-litellm), all params must be in required
-            if not self.force_litellm:
-                func["parameters"].setdefault("required", []).append("_background")
+            # All params must be in required for strict mode
+            func["parameters"].setdefault("required", []).append("_background")
 
         from pantheon.utils.token_optimization import stabilize_tool_definitions
 
@@ -1137,7 +1132,7 @@ class Agent:
     # ===== Legacy MCP method (deprecated, kept for backward compatibility) =====
 
     def _convert_functions(
-        self, litellm_mode: bool, allow_transfer: bool
+        self, relaxed_schema: bool, allow_transfer: bool
     ) -> list[dict]:
         """Convert function to the format that the model can understand."""
         functions = []
@@ -1160,7 +1155,7 @@ class Agent:
             func_dict = desc_to_openai_dict(
                 desc,
                 skip_params=skip_params,
-                litellm_mode=litellm_mode,
+                relaxed_schema=relaxed_schema,
             )
             functions.append(func_dict)
 
@@ -1424,7 +1419,7 @@ class Agent:
             from pantheon.utils.token_optimization import (
                 build_llm_view_async,
                 inject_cache_control_markers,
-                is_anthropic_model,
+                supports_explicit_cache_control,
             )
 
             run_context = get_current_run_context()
@@ -1439,9 +1434,11 @@ class Agent:
                 autocompact_model=model,
             )
             messages = process_messages_for_model(messages, model)
-            # Inject Anthropic prompt-cache markers so the server-side cache
-            # activates — mirrors Claude Code's getCacheControl() strategy.
-            if is_anthropic_model(model):
+            # Inject prompt-cache markers for providers that support
+            # explicit cache_control (Anthropic, Qwen).
+            # OpenAI/DeepSeek/Gemini use automatic prefix caching —
+            # stabilize_tool_definitions() ensures stable prefixes for them.
+            if supports_explicit_cache_control(model):
                 messages = inject_cache_control_markers(messages)
             if run_context is not None:
                 # Selective copy: shallow for messages with string content,
@@ -1456,7 +1453,7 @@ class Agent:
                 run_context.cache_safe_prompt_messages = cached
 
         # Step 2: Detect provider and get configuration
-        provider_config = detect_provider(model, self.force_litellm)
+        provider_config = detect_provider(model, self.relaxed_schema)
 
         # Step 3: Get base URL and API key from environment if available
         # Skip if detect_provider already set them (e.g. OpenAI-compatible providers)
@@ -1542,7 +1539,7 @@ class Agent:
                 model_params=model_params,
                 response_format=response_format,
             )
-        
+
         # Step 8: Call LLM provider (unified interface)
         # logger.info(f"Raw messages: {messages}")
 
@@ -1555,6 +1552,9 @@ class Agent:
                 process_chunk=enhanced_process_chunk,
                 model_params=model_params,
             )
+
+        if message is None:
+            message = {"role": "assistant", "content": "Error: Empty response from model."}
 
         # Step 8: Add metadata to message
         end_timestamp = time.time()
@@ -1627,9 +1627,9 @@ class Agent:
 
         For each model, transient errors (overloaded, rate-limit, 5xx) are
         retried with exponential backoff.  Non-transient errors skip directly
-        to the next model.  LiteLLM's ``num_retries`` still handles initial
+        to the next model.  The adapter's ``num_retries`` still handles initial
         connection-level retries; this layer covers mid-stream failures that
-        LiteLLM cannot retry on its own.
+        the adapter cannot retry on its own.
         """
         # --- Read retry settings (with sensible defaults) ---
         from .settings import get_settings
@@ -1680,6 +1680,8 @@ class Agent:
                     raise
                 except Exception as e:
                     last_error = e
+                    import traceback
+                    logger.error(f"[Agent:{self.name}] Full traceback:\n{traceback.format_exc()}")
 
                     if _is_retryable_error(e) and attempt < max_retries:
                         delay = min(base_delay * (2 ** attempt), max_delay)

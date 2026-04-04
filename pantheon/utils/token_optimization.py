@@ -1282,16 +1282,17 @@ async def autocompact_messages(
             })
 
             # Call LLM (CC: queryModelWithStreaming with querySource='compact')
-            from pantheon.utils.llm import acompletion_litellm
-            response = await acompletion_litellm(
+            from pantheon.utils.llm import acompletion
+            response = await acompletion(
                 model=model,
                 messages=[
                     {"role": "system", "content": _AUTOCOMPACT_SYSTEM_PROMPT},
                     *compact_messages,
                 ],
-                max_tokens=min(AUTOCOMPACT_MAX_OUTPUT_TOKENS, 20_000),
-                temperature=0,
-                stream=False,
+                model_params={
+                    "max_tokens": min(AUTOCOMPACT_MAX_OUTPUT_TOKENS, 20_000),
+                    "temperature": 0,
+                },
             )
             raw_summary = ""
             if isinstance(response, dict):
@@ -1670,16 +1671,31 @@ def estimate_total_tokens_from_chars(messages: list[dict]) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Opt3: Prompt cache control markers (Anthropic API)
+# Opt3: Prompt cache control markers
 # ---------------------------------------------------------------------------
 
 _ANTHROPIC_MODEL_PREFIXES = ("claude", "anthropic/", "custom_anthropic/")
+_QWEN_MODEL_PREFIXES = ("qwen", "zai/")
 
 
 def is_anthropic_model(model: str) -> bool:
-    """Return True if *model* routes to the Anthropic API via litellm."""
+    """Return True if *model* routes to the Anthropic API."""
     lower = model.lower()
     return any(lower.startswith(p) for p in _ANTHROPIC_MODEL_PREFIXES)
+
+
+def supports_explicit_cache_control(model: str) -> bool:
+    """Return True if *model* supports ``cache_control: {"type": "ephemeral"}`` markers.
+
+    Currently supported:
+    - Anthropic (Claude): native cache_control in Messages API
+    - Qwen (DashScope): same cache_control format via OpenAI-compatible endpoint
+    """
+    lower = model.lower()
+    return (
+        any(lower.startswith(p) for p in _ANTHROPIC_MODEL_PREFIXES)
+        or any(lower.startswith(p) for p in _QWEN_MODEL_PREFIXES)
+    )
 
 
 def _make_text_block(text: str) -> dict[str, Any]:
@@ -1724,22 +1740,8 @@ def inject_cache_control_markers(
 
     Returns a *new* list; input messages are not mutated.
 
-    Requires litellm >= 1.34.0 for cache_control pass-through to Anthropic.
+    Cache control is passed through natively by the Anthropic adapter.
     """
-    # Safety check: litellm must support cache_control field pass-through
-    try:
-        from importlib.metadata import version as pkg_version
-        litellm_version = pkg_version("litellm")
-        major, minor = (int(x) for x in litellm_version.split(".")[:2])
-        if (major, minor) < (1, 34):
-            logger.debug(
-                "litellm {} < 1.34 — skipping cache_control injection",
-                litellm_version,
-            )
-            return messages
-    except Exception:
-        pass  # can't determine version, proceed optimistically
-
     from copy import deepcopy
 
     result = deepcopy(messages)
