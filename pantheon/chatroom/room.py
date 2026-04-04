@@ -2128,7 +2128,7 @@ class ChatRoom(ToolSet):
 
 
     @tool
-    async def get_token_stats(self, chat_id: str) -> dict:
+    async def get_token_stats(self, chat_id: str, model: str | None = None) -> dict:
         """Get detailed token usage statistics for a chat.
 
         Returns token breakdown by role (system/user/assistant/tool),
@@ -2136,6 +2136,8 @@ class ChatRoom(ToolSet):
 
         Args:
             chat_id: The chat to get token stats for
+            model: Optional model override (e.g. the model currently selected in the UI).
+                   When provided, used for catalog lookup instead of agent.models[0].
 
         Returns:
             dict with success status and token statistics
@@ -2149,6 +2151,7 @@ class ChatRoom(ToolSet):
                 chat_id=chat_id,
                 team=team,
                 fallback={},
+                model_override=model,
             )
             return {"success": True, **token_info}
         except Exception as e:
