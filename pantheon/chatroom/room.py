@@ -1,6 +1,12 @@
 import asyncio
 import dataclasses
 import io
+try:
+    import psutil as _psutil
+    _psutil_process = _psutil.Process()
+except ImportError:
+    _psutil = None  # type: ignore
+    _psutil_process = None
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -228,18 +234,16 @@ class ChatRoom(ToolSet):
             task = asyncio.create_task(self._ensure_plugins())
             self._background_tasks.add(task)
 
-        # Update litellm model cost map in background (non-blocking)
-        # This fetches latest model metadata (context window sizes, pricing) from GitHub.
-        # Without this, newer models (e.g. gpt-5.4) fall back to 200K max_tokens.
-        # Same logic as REPL's _update_litellm_cost_map() in __main__.py.
-        asyncio.create_task(self._update_litellm_cost_map())
-
         # Register activity callback for _ping responses (used by Hub idle cleanup)
         if hasattr(self, 'worker') and self.worker and hasattr(self.worker, 'set_activity_callback'):
             self.worker.set_activity_callback(self._get_activity_status)
 
     def _get_activity_status(self) -> dict:
-        """Return current activity status for _ping responses."""
+        """Return current activity status for _ping responses.
+
+        Called synchronously from NATSRemoteWorker._ping().  Must not block.
+        psutil.cpu_percent(interval=None) is non-blocking; first call returns 0.0.
+        """
         active_threads = len(self.threads)
         bg_task_count = 0
         for team in self.chat_teams.values():
@@ -250,20 +254,24 @@ class ChatRoom(ToolSet):
                         if t.status == "running"
                     )
         has_active_tasks = active_threads > 0 or bg_task_count > 0
-        return {
+
+        metrics: dict = {
             "active_threads": active_threads,
             "bg_tasks": bg_task_count,
             "has_active_tasks": has_active_tasks,
         }
 
-    @staticmethod
-    async def _update_litellm_cost_map():
-        """Background task to update litellm model cost map.
+        if _psutil is not None and _psutil_process is not None:
+            try:
+                metrics["cpu_percent"] = round(_psutil.cpu_percent(interval=None), 1)
+                rss = _psutil_process.memory_info().rss
+                total = _psutil.virtual_memory().total
+                metrics["mem_used_mb"] = round(rss / 1024 / 1024, 1)
+                metrics["mem_percent"] = round(rss / total * 100, 1) if total > 0 else 0.0
+            except Exception:
+                pass  # process may have exited or psutil failed — omit silently
 
-        Delegates to the shared utility in pantheon.utils.llm.
-        """
-        from pantheon.utils.llm import update_litellm_cost_map
-        await update_litellm_cost_map()
+        return metrics
 
     async def _ensure_plugins(self, endpoint_service: object = None) -> list:
         """Lazily initialize plugins (idempotent).
@@ -1702,8 +1710,8 @@ class ChatRoom(ToolSet):
         """
         try:
             import base64
-            from pantheon.utils.llm_providers import get_proxy_kwargs
             from pantheon.utils.adapters import get_adapter
+            from pantheon.utils.llm_providers import get_llm_proxy_config
 
             logger.info(f"[STT] Received bytes_data type={type(bytes_data).__name__}, "
                         f"len={len(bytes_data) if hasattr(bytes_data, '__len__') else 'N/A'}")
@@ -1736,14 +1744,14 @@ class ChatRoom(ToolSet):
             audio_file.name = "audio.webm"
 
             logger.info("[STT] Calling transcription adapter...")
-            proxy_kwargs = get_proxy_kwargs()
+            _proxy_base, _proxy_key = get_llm_proxy_config()
             adapter = get_adapter("openai")
             response = await asyncio.wait_for(
                 adapter.atranscription(
                     model=self.speech_to_text_model,
                     file=audio_file,
-                    base_url=proxy_kwargs.get("base_url"),
-                    api_key=proxy_kwargs.get("api_key"),
+                    base_url=_proxy_base or None,
+                    api_key=_proxy_key or None,
                 ),
                 timeout=30,
             )
