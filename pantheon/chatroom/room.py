@@ -263,7 +263,7 @@ class ChatRoom(ToolSet):
 
         if _psutil is not None and _psutil_process is not None:
             try:
-                metrics["cpu_percent"] = round(_psutil.cpu_percent(interval=None), 1)
+                metrics["cpu_percent"] = round(_psutil_process.cpu_percent(interval=None), 1)
                 rss = _psutil_process.memory_info().rss
                 total = _psutil.virtual_memory().total
                 metrics["mem_used_mb"] = round(rss / 1024 / 1024, 1)
