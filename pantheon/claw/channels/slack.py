@@ -125,6 +125,43 @@ class SlackGatewayApp(ChannelRuntime):
                 logger.exception("Slack file download/convert failed: %s", f.get("name"))
         return uris
 
+    async def _download_documents(self, client, event: dict) -> list[tuple[str, str]]:
+        """Download non-image file attachments and save locally.
+
+        Returns list of (filename, local_path) tuples.
+        """
+        files = event.get("files") or []
+        results: list[tuple[str, str]] = []
+        for f in files:
+            mimetype = f.get("mimetype", "")
+            if mimetype.startswith("image/"):
+                continue  # handled by _download_files
+            url = f.get("url_private_download") or f.get("url_private") or ""
+            file_name = f.get("name", "uploaded_file")
+            if not url:
+                continue
+            import os, tempfile
+            tmp_dir = os.path.join(tempfile.gettempdir(), "pantheon_claw_uploads")
+            os.makedirs(tmp_dir, exist_ok=True)
+            local_path = os.path.join(tmp_dir, file_name)
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        url,
+                        headers={"Authorization": f"Bearer {self._bot_token}"},
+                        timeout=aiohttp.ClientTimeout(total=60),
+                    ) as resp:
+                        if resp.status != 200:
+                            logger.warning("Slack file download HTTP %s for %s", resp.status, file_name)
+                            continue
+                        data = await resp.read()
+                with open(local_path, "wb") as fp:
+                    fp.write(data)
+                results.append((file_name, local_path))
+            except Exception:
+                logger.exception("Slack document download failed: %s", file_name)
+        return results
+
     async def _send_image(self, client, channel: str, thread_ts: str | None, data_uri: str) -> None:
         """Upload a base64 data-URI as a file to Slack."""
         raw, mime = data_uri_to_bytes(data_uri)
@@ -242,6 +279,14 @@ class SlackGatewayApp(ChannelRuntime):
                 return
             text = str(event.get("text") or "").strip()
             image_uris = await self._download_files(client, event)
+            # Download non-image files and inject as attachments
+            docs = await self._download_documents(client, event)
+            if docs:
+                attachment_text = "--- Attachments ---\nUser attached the following files:\n"
+                for fname, fpath in docs:
+                    attachment_text += f"{fname}: {fpath}\n"
+                attachment_text += "--- End of Attachments ---\n"
+                text = attachment_text + (text or f"I've uploaded {', '.join(n for n, _ in docs)}.")
             if not text and not image_uris:
                 return
             cmd, tail = self._command_parts(text)
@@ -249,13 +294,13 @@ class SlackGatewayApp(ChannelRuntime):
                 return
             route_key = route.route_key()
             if self._get_running(route_key) is not None:
-                self._queue_message(route_key, tail or text or "[image]")
+                self._queue_message(route_key, tail or text or "[file]")
                 await self._post(client, body, "Queued after current analysis.", thread=bool(route.thread_id))
                 return
             task = asyncio.create_task(
                 self._analysis_wrapper(route, body, client, tail or text, image_uris=image_uris or None)
             )
-            self._set_task(route_key, task, tail or text or "[image]")
+            self._set_task(route_key, task, tail or text or "[file]")
 
         @self._app.event("app_mention")
         async def _handle_mention(body, client, ack):
@@ -266,12 +311,20 @@ class SlackGatewayApp(ChannelRuntime):
             parts = text.split(maxsplit=1)
             cleaned = parts[1] if len(parts) > 1 else text
             image_uris = await self._download_files(client, event)
+            # Download non-image files and inject as attachments
+            docs = await self._download_documents(client, event)
+            if docs:
+                attachment_text = "--- Attachments ---\nUser attached the following files:\n"
+                for fname, fpath in docs:
+                    attachment_text += f"{fname}: {fpath}\n"
+                attachment_text += "--- End of Attachments ---\n"
+                cleaned = attachment_text + (cleaned or f"I've uploaded {', '.join(n for n, _ in docs)}.")
             cmd, tail = self._command_parts(cleaned)
             if cmd and await self._handle_control(route, body, client, cleaned):
                 return
             route_key = route.route_key()
             if self._get_running(route_key) is not None:
-                self._queue_message(route_key, tail or cleaned or "[image]")
+                self._queue_message(route_key, tail or cleaned or "[file]")
                 await self._post(client, body, "Queued after current analysis.", thread=True)
                 return
             task = asyncio.create_task(
