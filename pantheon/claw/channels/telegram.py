@@ -376,6 +376,7 @@ class TelegramGatewayBot(ChannelRuntime):
                 BotCommand("new", "Start a fresh chat"),
                 BotCommand("list", "List routed chats"),
                 BotCommand("resume", "Resume a previous chat"),
+                BotCommand("isolate", "Toggle workspace isolation"),
                 BotCommand("cancel", "Cancel running analysis"),
                 BotCommand("reset", "Delete chat and start over"),
             ])
