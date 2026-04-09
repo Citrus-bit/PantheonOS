@@ -12,7 +12,7 @@ from typing import Any
 import requests
 
 from pantheon.claw.registry import ConversationRoute
-from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_plain, extract_display_text
+from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_plain, extract_display_text, upload_image_to_imgbb
 
 from pantheon.utils.log import logger
 
@@ -146,102 +146,9 @@ class WeChatApiClient:
         response.raise_for_status()
         return response.content
 
-    def _get_upload_url(self) -> dict[str, Any]:
-        """Get a pre-signed CDN upload URL from WeChat iLink."""
-        return self._post_json(
-            "/ilink/bot/getuploadurl",
-            {"base_info": {"channel_version": "pantheonclaw"}},
-            timeout=(10.0, 20.0),
-        )
-
-    @staticmethod
-    def _aes_ecb_encrypt(data: bytes, key: bytes) -> bytes:
-        """Encrypt data using AES-128-ECB with PKCS7 padding."""
-        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-        from cryptography.hazmat.primitives import padding as sym_padding
-
-        padder = sym_padding.PKCS7(128).padder()
-        padded = padder.update(data) + padder.finalize()
-        cipher = Cipher(algorithms.AES(key), modes.ECB())
-        encryptor = cipher.encryptor()
-        return encryptor.update(padded) + encryptor.finalize()
-
-    def _upload_to_cdn(self, image_data: bytes) -> tuple[str, str, int]:
-        """Upload image to WeChat CDN with AES encryption.
-
-        Returns:
-            (encrypt_query_param, aes_key_b64, encrypted_size)
-        """
-        import os as _os
-
-        # 1. Get upload URL
-        upload_info = self._get_upload_url()
-        upload_url = upload_info.get("upload_url", "")
-        if not upload_url:
-            raise RuntimeError(f"WeChat getuploadurl returned no URL: {upload_info}")
-
-        # 2. Generate AES key and encrypt
-        aes_key = _os.urandom(16)
-        encrypted = self._aes_ecb_encrypt(image_data, aes_key)
-
-        # 3. PUT encrypted data to CDN
-        resp = requests.put(
-            upload_url,
-            data=encrypted,
-            headers={"Content-Type": "application/octet-stream"},
-            timeout=(10.0, 60.0),
-        )
-        resp.raise_for_status()
-
-        # Extract query param from upload URL for reference
-        from urllib.parse import urlparse, parse_qs
-        parsed = urlparse(upload_url)
-        encrypt_query_param = parsed.query or parsed.path
-
-        aes_key_b64 = base64.b64encode(aes_key).decode("ascii")
-        return encrypt_query_param, aes_key_b64, len(encrypted)
-
-    def send_image(self, *, to_user_id: str, image_data: bytes, context_token: str, filename: str = "image.png") -> None:
-        """Send an image to a WeChat user via CDN upload + sendmessage."""
-        try:
-            encrypt_query_param, aes_key_b64, encrypted_size = self._upload_to_cdn(image_data)
-        except Exception as e:
-            logger.warning(f"[WeChat] CDN upload failed, falling back to text: {e}")
-            # Fallback: notify user
-            self.send_text(
-                to_user_id=to_user_id,
-                text="📷 [Image generated — view in Pantheon UI]",
-                context_token=context_token,
-            )
-            return
-
-        payload = {
-            "msg": {
-                "from_user_id": "",
-                "to_user_id": to_user_id,
-                "client_id": uuid.uuid4().hex,
-                "message_type": 2,
-                "message_state": 2,
-                "context_token": context_token,
-                "item_list": [{
-                    "type": 2,
-                    "image_item": {
-                        "media": {
-                            "encrypt_query_param": encrypt_query_param,
-                            "aes_key": aes_key_b64,
-                            "encrypt_type": 1,
-                        },
-                        "mid_size": encrypted_size,
-                    },
-                }],
-            },
-            "base_info": {"channel_version": "pantheonclaw"},
-        }
-        data = self._post_json("/ilink/bot/sendmessage", payload, timeout=(10.0, 20.0))
-        errcode = data.get("errcode")
-        ret = data.get("ret")
-        if (isinstance(errcode, int) and errcode != 0) or (isinstance(ret, int) and ret != 0):
-            logger.warning("WeChat send_image failed (ret=%s, errcode=%s): %s", ret, errcode, data.get("errmsg"))
+    # Note: WeChat iLink CDN image upload (getuploadurl + AES) requires special
+    # bot permissions not available to all accounts. Image sending is handled
+    # via imgbb upload in the WeChatGatewayBot._send_image method instead.
 
     def send_text(self, *, to_user_id: str, text: str, context_token: str) -> None:
         payload = {
@@ -303,19 +210,12 @@ class WeChatGatewayBot(ChannelRuntime):
         return uris
 
     async def _send_image(self, to_user_id: str, context_token: str, data_uri: str) -> None:
-        """Send image to WeChat user via CDN upload."""
-        raw, _mime = data_uri_to_bytes(data_uri)
-        if not raw:
-            return
-        try:
-            await asyncio.to_thread(
-                self._client.send_image,
-                to_user_id=to_user_id,
-                image_data=raw,
-                context_token=context_token,
-            )
-        except Exception as e:
-            logger.warning(f"[WeChat] _send_image failed: {e}")
+        """Upload image to imgbb and send the URL to the WeChat user."""
+        url = await asyncio.to_thread(upload_image_to_imgbb, data_uri)
+        if url:
+            await self._send_text(to_user_id, context_token, f"📷 {url}")
+        else:
+            await self._send_text(to_user_id, context_token, "📷 [Image generated — view in Pantheon UI]")
 
     async def _handle_control(
         self,

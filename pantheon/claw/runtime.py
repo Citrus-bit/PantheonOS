@@ -486,6 +486,36 @@ def data_uri_to_bytes(uri: str) -> tuple[bytes, str]:
         return b"", ""
 
 
+_DEFAULT_IMGBB_KEY = "b475b7345fe3af9c65a73dba2339199b"
+
+
+def upload_image_to_imgbb(data_uri: str, api_key: str | None = None) -> str | None:
+    """Upload a data-URI image to imgbb and return the public URL.
+
+    Returns None on failure.
+    """
+    import requests as _requests
+
+    raw, _mime = data_uri_to_bytes(data_uri)
+    if not raw:
+        return None
+    key = api_key or _DEFAULT_IMGBB_KEY
+    b64 = base64.b64encode(raw).decode("ascii")
+    try:
+        resp = _requests.post(
+            "https://api.imgbb.com/1/upload",
+            data={"key": key, "image": b64},
+            timeout=30,
+        )
+        data = resp.json()
+        if data.get("success"):
+            return data["data"]["url"]
+        logger.warning(f"imgbb upload failed: {data}")
+    except Exception as e:
+        logger.warning(f"imgbb upload error: {e}")
+    return None
+
+
 def extract_images_from_result(result: Dict[str, Any]) -> List[str]:
     """Pull base64 data-URIs from a chatroom response.
 
