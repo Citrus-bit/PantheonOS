@@ -115,6 +115,7 @@ class ChatRoomGatewayBridge:
             "/new            Start a fresh routed chat for this channel scope\n"
             "/list           List routed chats for this channel scope\n"
             "/resume <sel>   Resume a previous routed chat by index, id, or name\n"
+            "/isolate        Toggle workspace isolation (isolated/project)\n"
             "/cancel         Cancel the running analysis\n"
             "/reset          Delete the routed chat and mapping\n"
         )
@@ -381,6 +382,57 @@ class ChatRoomGatewayBridge:
         )
         return f"Resumed chat: {entry['chat_name']} ({entry['chat_id']})"
 
+    async def _handle_isolate_command(self, route: ConversationRoute, args: str) -> str:
+        chat_id = await self._get_chat_id(route)
+        # Get current mode
+        try:
+            resp = await self._dispatch(
+                self._chatroom.get_chat_messages(chat_id=chat_id, limit=0)
+            )
+        except Exception:
+            pass
+
+        # Toggle: if currently isolated → project, if project → isolated
+        mode_arg = (args or "").strip().lower()
+        if mode_arg in ("on", "isolated", "true"):
+            new_mode = "isolated"
+        elif mode_arg in ("off", "project", "false"):
+            new_mode = "project"
+        else:
+            # Auto-toggle: query current mode from memory
+            try:
+                memory_resp = await self._dispatch(
+                    self._chatroom.get_chat_template(chat_id=chat_id)
+                )
+                current = "project"
+                if isinstance(memory_resp, dict):
+                    template = memory_resp.get("template", {})
+                    for agent in template.get("agents", []):
+                        if isinstance(agent, dict) and agent.get("workspace_mode"):
+                            current = agent["workspace_mode"]
+                            break
+                # Also check project metadata
+                project = memory_resp.get("project", {}) if isinstance(memory_resp, dict) else {}
+                if isinstance(project, dict):
+                    current = project.get("workspace_mode", current)
+                new_mode = "project" if current == "isolated" else "isolated"
+            except Exception:
+                new_mode = "project"  # default toggle to project
+
+        try:
+            result = await self._dispatch(
+                self._chatroom.set_chat_workspace_mode(
+                    chat_id=chat_id,
+                    workspace_mode=new_mode,
+                )
+            )
+            if isinstance(result, dict) and result.get("success"):
+                emoji = "🔒" if new_mode == "isolated" else "🌐"
+                return f"{emoji} Workspace mode: {new_mode}"
+            return f"Failed to set workspace mode: {result}"
+        except Exception as e:
+            return f"Error: {e}"
+
     async def handle_control_command(self, route: ConversationRoute, text: str) -> dict[str, Any]:
         cmd, args = self._command_parts(text)
         if not cmd:
@@ -410,6 +462,8 @@ class ChatRoomGatewayBridge:
             return {"handled": True, "message": result.get("message", "reset"), "clear_pending": True}
         if cmd == "/model":
             return {"handled": True, "message": await self._handle_model_command(route, args)}
+        if cmd == "/isolate":
+            return {"handled": True, "message": await self._handle_isolate_command(route, args)}
 
         return {
             "handled": True,
