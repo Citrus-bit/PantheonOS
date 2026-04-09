@@ -50,9 +50,12 @@ class SlackGatewayApp(ChannelRuntime):
 
     def _command_parts(self, text: str) -> tuple[str, str]:
         text = (text or "").strip()
-        if not text.startswith("/"):
+        # Use "!" prefix instead of "/" to avoid conflicts with Slack slash commands
+        if not text.startswith("!"):
             return "", text
-        pieces = text.split(maxsplit=1)
+        # Convert !command to /command for bridge compatibility
+        normalized = "/" + text[1:]
+        pieces = normalized.split(maxsplit=1)
         return pieces[0].lower(), pieces[1].strip() if len(pieces) > 1 else ""
 
     async def _post(self, client, body: dict[str, Any], text: str, *, thread: bool = False) -> dict[str, Any]:
@@ -79,7 +82,10 @@ class SlackGatewayApp(ChannelRuntime):
         if result.get("clear_pending"):
             self._clear_pending(route.route_key())
         is_thread = route.scope_type != "dm" or bool(body.get("event", {}).get("thread_ts"))
-        await self._post(client, body, result.get("message") or "", thread=is_thread)
+        # Replace /command with !command in help text for Slack users
+        import re as _re
+        msg = _re.sub(r"(?<!\w)/(?=\w)", "!", result.get("message") or "")
+        await self._post(client, body, msg, thread=is_thread)
         return True
 
     async def _download_files(self, client, event: dict[str, Any]) -> list[str]:
