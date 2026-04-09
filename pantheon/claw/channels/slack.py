@@ -302,7 +302,7 @@ class SlackGatewayApp(ChannelRuntime):
             if not text and not image_uris:
                 return
             cmd, tail = self._command_parts(text)
-            if cmd and await self._handle_control(route, body, client, text):
+            if cmd and await self._handle_control(route, body, client, f"{cmd} {tail}".strip()):
                 return
             route_key = route.route_key()
             if self._get_running(route_key) is not None:
@@ -343,7 +343,7 @@ class SlackGatewayApp(ChannelRuntime):
                 attachment_text += "--- End of Attachments ---\n"
                 cleaned = attachment_text + (cleaned or f"I've uploaded {', '.join(n for n, _ in docs)}.")
             cmd, tail = self._command_parts(cleaned)
-            if cmd and await self._handle_control(route, body, client, cleaned):
+            if cmd and await self._handle_control(route, body, client, f"{cmd} {tail}".strip()):
                 return
             route_key = route.route_key()
             if self._get_running(route_key) is not None:
