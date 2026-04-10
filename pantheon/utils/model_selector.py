@@ -322,6 +322,11 @@ class ModelSelector:
             if os.environ.get(config.api_key_env, "") or settings.get_api_key(config.api_key_env):
                 self._available_providers.add(provider_key)
 
+        # Check user-defined custom models from settings.json
+        custom_models = settings.get("models.custom_models", {})
+        if isinstance(custom_models, dict) and custom_models:
+            self._available_providers.add("custom")
+
         # Check OAuth providers (e.g., Codex, Gemini CLI)
         try:
             from pantheon.utils.oauth import CodexOAuthManager, GeminiCliOAuthManager
@@ -429,6 +434,15 @@ class ModelSelector:
             if model:
                 prefixed = f"{provider}/{model}"
                 return {"high": [prefixed], "normal": [prefixed], "low": [prefixed]}
+            return {}
+
+        # User-defined custom models from settings.json
+        if provider == "custom":
+            from pantheon.settings import get_settings
+            custom_models = get_settings().get("models.custom_models", {})
+            if isinstance(custom_models, dict) and custom_models:
+                prefixed = [f"custom/{name}" for name in custom_models]
+                return {"high": prefixed, "normal": prefixed, "low": prefixed}
             return {}
 
         # Ollama: dynamically list local models

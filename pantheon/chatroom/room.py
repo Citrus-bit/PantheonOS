@@ -2365,6 +2365,44 @@ class ChatRoom(ToolSet):
             return {"success": False, "installs": {}, "error": str(e)}
 
     @tool
+    async def get_custom_models(self) -> dict:
+        """Get all user-defined custom models."""
+        from pantheon.settings import get_settings
+        models = get_settings().get("models.custom_models", {})
+        return {"success": True, "models": models if isinstance(models, dict) else {}}
+
+    async def save_custom_models(self, models: dict) -> dict:
+        """Save user-defined custom models to settings.json.
+
+        Args:
+            models: Dict of model_name -> {api_base, api_key, provider_type}
+        """
+        try:
+            import json
+            from pantheon.settings import get_settings
+            settings = get_settings()
+            settings_path = settings.pantheon_dir / "settings.json"
+
+            # Read existing settings
+            if settings_path.exists():
+                data = json.loads(settings_path.read_text(encoding="utf-8"))
+            else:
+                data = {}
+
+            # Update custom_models under models key
+            if "models" not in data:
+                data["models"] = {}
+            data["models"]["custom_models"] = models
+
+            # Write back
+            settings_path.write_text(json.dumps(data, indent=4, ensure_ascii=False), encoding="utf-8")
+
+            # Reload
+            settings.reload()
+            return {"success": True, "message": "Custom models saved"}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
     async def reload_settings(self) -> dict:
         """Reload configuration settings from .env file and settings.json.
 

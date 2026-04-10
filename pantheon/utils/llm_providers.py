@@ -71,12 +71,35 @@ def detect_provider(model: str, relaxed_schema: bool) -> ProviderConfig:
     base_url = None
     api_key = None
 
-    # Check for custom endpoint prefix first (e.g., "custom_anthropic/glm-5")
+    # Check for user-defined custom models (custom/model-name)
     if "/" in model:
         provider_prefix, model_name = model.split("/", 1)
         provider_lower = provider_prefix.lower()
 
-        # Check if it's a custom endpoint
+        if provider_lower == "custom":
+            from pantheon.settings import get_settings
+            custom_models = get_settings().get("models.custom_models", {})
+            if isinstance(custom_models, dict) and model_name in custom_models:
+                cfg = custom_models[model_name]
+                custom_base = cfg.get("api_base", "")
+                custom_key = cfg.get("api_key", "")
+                ptype = cfg.get("provider_type", "openai").lower()
+                if ptype == "anthropic":
+                    resolved = f"anthropic/{model_name}"
+                    pt = ProviderType.NATIVE
+                else:
+                    resolved = f"openai/{model_name}"
+                    pt = ProviderType.OPENAI
+                logger.debug(f"Using custom model '{model_name}' with base_url={custom_base}")
+                return ProviderConfig(
+                    provider_type=pt,
+                    model_name=resolved,
+                    base_url=custom_base or None,
+                    api_key=custom_key or None,
+                    relaxed_schema=relaxed_schema,
+                )
+
+        # Check for custom endpoint prefix (e.g., "custom_anthropic/glm-5")
         if provider_lower in CUSTOM_ENDPOINT_ENVS:
             config = CUSTOM_ENDPOINT_ENVS[provider_lower]
             base_url = os.environ.get(config.api_base_env, "")
