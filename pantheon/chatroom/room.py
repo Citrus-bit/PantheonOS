@@ -1426,6 +1426,12 @@ class ChatRoom(ToolSet):
                 # Save only this chat's memory
                 await run_func(self.memory_manager.save_one, memory.id)
                 logger.debug(f"Chat renamed in background to: {new_name}")
+                # Notify frontend via NATS
+                if self._nats_adapter is not None:
+                    await self._nats_adapter.publish(
+                        memory.id, "chat_renamed",
+                        {"type": "chat_renamed", "chat_id": memory.id, "name": new_name},
+                    )
         except Exception as e:
             logger.error(f"Background chat rename failed: {e}")
 
