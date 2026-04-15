@@ -196,9 +196,9 @@
         // Uses quality level: "high", "normal", "low", or specific model name
         "selection_model": "low",
         // Retrieval limits for memories and recent chats
-        "selection_max_memories": 15,     // Max memories to select per query
-        "selection_max_chats": 5,         // Max recent chats to select per query
-        "session_notes_retrieval_limit": 15,  // Max session notes to scan (must be >= selection_max_chats)
+        "selection_max_memories": 15, // Max memories to select per query
+        "selection_max_chats": 5, // Max recent chats to select per query
+        "session_notes_retrieval_limit": 15, // Max session notes to scan (must be >= selection_max_chats)
         // Static index injection: inject MEMORY.md index into system prompt at startup.
         // Disabled by default — dynamic retrieval (on_run_start) handles context per query.
         // Enable if you want the agent to always see the full memory index.
@@ -219,7 +219,7 @@
         // Minimum hours between dream consolidations
         "dream_min_hours": 24,
         // Minimum sessions before triggering dream
-        "dream_min_sessions": 5,
+        "dream_min_sessions": 5
         // Session note thresholds (for compact shortcut, uncomment to override defaults)
         // Min context tokens before first extraction (default: 10000)
         // "session_note_init_tokens": 10000,
@@ -245,8 +245,8 @@
         // Skills to disable (list of skill names)
         "disabled_skills": [],
         // Skill index injection limits (cap system prompt size)
-        "skill_index_max_items": 50,    // Max number of skills listed in system prompt
-        "skill_index_max_tokens": 2000  // Approx token budget for skill index
+        "skill_index_max_items": 50, // Max number of skills listed in system prompt
+        "skill_index_max_tokens": 2000 // Approx token budget for skill index
     },
     // ===== LLM Retry Configuration =====
     // Exponential backoff retry for transient LLM API errors (e.g., mid-stream overloaded)
