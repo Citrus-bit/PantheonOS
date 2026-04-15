@@ -181,6 +181,12 @@
         // Wait this many messages before retrying after a compression failure
         "retry_after_messages": 10
     },
+    // ===== Task System Configuration =====
+    // Modal workflow tools (task_boundary, notify_user) for structured agent tasks
+    "task_system": {
+        // Enable the task system (injects TaskToolSet into primary agent)
+        "enabled": true
+    },
     // ===== Long-Term Memory System Configuration =====
     // Cross-session persistent memory with LLM-based selection and dream consolidation
     "memory_system": {

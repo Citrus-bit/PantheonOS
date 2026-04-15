@@ -669,6 +669,13 @@ class Agent:
         self._tool_output_buffers: dict[str, list[str]] = {}
         self._register_bg_tools()
 
+        # Callable hooks registered by plugins via get_toolsets() (set during PantheonTeam.async_setup)
+        # Each hook is a plain async callable — agent has no knowledge of plugins.
+        # Signature: async (history: list[dict], context_variables: dict) -> list[dict]
+        self._ephemeral_hooks: list = []
+        # Signature: async (tool_calls: list[dict], tool_messages: list[dict], context_variables: dict) -> None
+        self._tool_tracking_hooks: list = []
+
     def _register_bg_tools(self) -> None:
         """Register background task management tools."""
         bg_manager = self._bg_manager
@@ -1827,46 +1834,9 @@ class Agent:
         )
 
     def _render_system_prompt(self, prompt: str, context_variables: dict) -> str:
-        """Render system prompt with context variables.
-
-        Supports `${{ ... }}` syntax for python format strings.
-        Example: ${{ "Hello {name}" }} or ${{ context_variables['name'] }}
-        """
-        if not prompt or "${{" not in prompt:
-            return prompt
-        # Regex to find ${{ ... }} blocks
-        pattern = re.compile(r"\$\{\{(.*?)\}\}")
-
-        def replacer(match: re.Match) -> str:
-            content = match.group(1).strip()
-
-            # Check quoting
-            is_quoted = False
-            if (content.startswith('"') and content.endswith('"')) or (
-                content.startswith("'") and content.endswith("'")
-            ):
-                content = content[1:-1]
-                is_quoted = True
-
-            # If not quoted and has no braces, treat as a direct variable reference
-            # e.g. ${{ client_id }} -> {client_id} -> value
-            if not is_quoted and "{" not in content:
-                content = "{" + content + "}"
-
-            try:
-                # Use str.format for safe interpolation
-                # Inject context_variables both as unpacked kwargs and as a dict
-                return content.format(
-                    **context_variables, context_variables=context_variables
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Failed to render system prompt block '{{{{ {content} }}}}': {e}"
-                )
-                # Return original block on failure to avoid silent errors
-                return match.group(0)
-
-        return pattern.sub(replacer, prompt)
+        """Render system prompt — delegates to pantheon.internal.system_prompt."""
+        from pantheon.internal.system_prompt import render_system_prompt
+        return render_system_prompt(prompt, context_variables)
 
     async def _run_stream(
         self,
@@ -1900,35 +1870,11 @@ class Agent:
         tool_timeout = tool_timeout or self.tool_timeout
 
         # Use instructions directly - all prompt composition happens at template parsing time
-        # Render system prompt with context variables
+        # Render system prompt: substitutes ${{}} variables and appends standard context blocks
         system_prompt = self._render_system_prompt(
             self.instructions, context_variables or {}
         )
-        
-        # Static injection: Append workdir constraint if workdir is present
-        # This is NOT a template variable - it's automatically injected when workdir exists
-        if context_variables and context_variables.get("workdir"):
-            workdir = context_variables["workdir"]
-            workdir_constraint = f"""
 
-<workdir_constraint>
-IMPORTANT: You are operating in a restricted workspace environment.
-- Your working directory is: {workdir}
-- All file operations (read/write/create/delete) MUST be within this directory
-- Paths outside this directory are not accessible and will fail
-- When specifying file paths, use relative paths or absolute paths within {workdir}
-- The file manager and shell tools enforce this restriction at the code level
-</workdir_constraint>"""
-            if context_variables.get("image_output_dir"):
-                img_dir = context_variables["image_output_dir"]
-                workdir_constraint += f"""
-
-<image_output_constraint>
-When you generate or save images (plots, charts, figures, etc.), ALWAYS save them to: {img_dir}
-This directory is monitored so images saved here are automatically sent back to the user.
-</image_output_constraint>"""
-            system_prompt += workdir_constraint
-        
         current_timestamp = time.time()
 
         if (len(history) > 0) and (history[0]["role"] == "system"):
@@ -1958,14 +1904,6 @@ This directory is monitored so images saved here are automatically sent back to 
         else:
             Response = None
 
-        # Find TaskToolSet for EU injection (special handling for modal workflow)
-        # TaskToolSet is wrapped in LocalProvider, check by toolset_name
-        task_toolset = None
-        for provider in self.providers.values():
-            if hasattr(provider, "toolset") and provider.toolset_name == "task":
-                task_toolset = provider.toolset
-                break
-
         async def _process_chunk(chunk: dict):
             if process_chunk is not None:
                 await run_func(process_chunk, chunk)
@@ -1973,12 +1911,11 @@ This directory is monitored so images saved here are automatically sent back to 
                 raise StopRunning()
 
         while len(history) - init_len < max_turns:
-            # Build history for LLM (with ephemeral message if TaskToolSet present)
-            if task_toolset:
-                eu_msg = task_toolset.get_ephemeral_prompt(context_variables)
-                history_for_llm = history + [eu_msg]  # Temporary, EU not persisted
-            else:
-                history_for_llm = history
+            # Build history for LLM with ephemeral messages from hooks (not persisted)
+            history_for_llm = list(history)
+            for hook in self._ephemeral_hooks:
+                plugin_msgs = await hook(history, context_variables or {})
+                history_for_llm.extend(plugin_msgs)
 
             # Inject background task completion notifications (ephemeral)
             bg_notifs = self._bg_manager.drain_notifications()
@@ -2049,12 +1986,12 @@ This directory is monitored so images saved here are automatically sent back to 
                 check_stop=check_stop,
             )
 
-            # Process tool messages for artifact tracking
-            if task_toolset:
-                task_toolset.process_tool_messages(
-                    tool_calls=message.get("tool_calls") or [],
-                    tool_messages=tool_messages,
-                    context_variables=context_variables,
+            # Process tool calls for state tracking via hooks
+            for hook in self._tool_tracking_hooks:
+                await hook(
+                    message.get("tool_calls") or [],
+                    tool_messages,
+                    context_variables or {},
                 )
 
             # Filter out all transfer messages - they will be handled in _prepare_execution_context()

@@ -740,7 +740,9 @@ class PantheonTeam(Team):
             await self.add_list_agents_tool()
             await self.add_unified_call_agent_tool()
         
-        # Inject toolsets declared by plugins
+        # Inject toolsets declared by plugins.
+        # Plugins that need per-LLM-call hooks (ephemeral messages, tool tracking)
+        # register closures directly on the target agent inside get_toolsets().
         for plugin in self.plugins:
             try:
                 toolset_specs = await plugin.get_toolsets(self)
@@ -757,7 +759,7 @@ class PantheonTeam(Team):
 
         # Call plugin lifecycle hook
         await self._call_plugin_hook("on_team_created", self)
-        
+
         self._is_initialized = True
 
     async def run(self, msg: AgentInput, memory: Memory | None = None, **kwargs):

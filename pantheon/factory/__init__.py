@@ -89,18 +89,9 @@ async def create_agent(
     # ===== Add ToolSet providers from config =====
 
     for toolset_name in normal_toolsets:
-        # Special handling: "task" toolset is local-only (not via Endpoint)
+        # "task" toolset is now managed by TaskSystemPlugin via plugin registry
         if toolset_name == "task":
-            try:
-                from pantheon.toolsets.task import TaskToolSet
-
-                task_toolset = TaskToolSet()
-                await agent.toolset(task_toolset)
-                toolsets_added.append(toolset_name)
-                logger.debug(f"Agent '{name}': Added local TaskToolSet")
-            except Exception as e:
-                logger.error(f"Agent '{name}': Failed to add local TaskToolSet: {e}")
-                agent.not_loaded_toolsets.append(toolset_name)
+            logger.debug(f"Agent '{name}': 'task' toolset is managed by TaskSystemPlugin, skipping")
             continue
 
         try:
