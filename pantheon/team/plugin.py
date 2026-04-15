@@ -20,10 +20,23 @@ Lifecycle hooks (in execution order):
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from pantheon.team.pantheon import PantheonTeam
+
+
+@dataclass
+class CompactHint:
+    """Returned by pre_compression to signal a zero-LLM compact is available.
+
+    summary:  The session note content to use as the compression checkpoint.
+    boundary: Message index up to which the summary covers (exclusive).
+              compression plugin will insert the checkpoint at this boundary.
+    """
+    summary: str
+    boundary: int
 
 
 class TeamPlugin(ABC):
@@ -64,9 +77,13 @@ class TeamPlugin(ABC):
 
     async def on_run_start(
         self, team: "PantheonTeam", user_input: Any, context: dict
-    ) -> None:
-        """Called before each run starts."""
-        pass
+    ) -> Any | None:
+        """Called before each run starts.
+
+        Return a modified user_input to replace the original, or None to leave it unchanged.
+        Only str inputs should be modified (text injection); other types are passed through.
+        """
+        return None
 
     async def on_run_end(self, team: "PantheonTeam", result: dict) -> None:
         """Called after each run completes."""
@@ -74,8 +91,16 @@ class TeamPlugin(ABC):
 
     async def pre_compression(
         self, team: "PantheonTeam", session_id: str, messages: list[dict]
-    ) -> str | None:
-        """Called before context compression. Return flushed content or None."""
+    ) -> str | CompactHint | None:
+        """Called before context compression.
+
+        Return values:
+        - str: flushed content to log (pre-compression flush)
+        - CompactHint: signals a zero-LLM compact is available; compression
+          plugin will use the summary and boundary to insert a checkpoint
+          without calling the LLM
+        - None: nothing to do
+        """
         return None
 
     async def post_compression(

@@ -181,6 +181,14 @@ class MemoryRuntime:
             session_id, messages, context_tokens, jsonl_path=jsonl_path
         )
 
+    async def force_update_session_note(
+        self, session_id: str, messages: list[dict]
+    ) -> bool:
+        """Force session note update before compression."""
+        if not self.session_note:
+            return False
+        return await self.session_note.force_update(session_id, messages)
+
     def get_session_note_for_compact(self, session_id: str) -> str:
         """Get session note content for compact shortcut."""
         if not self.session_note:

@@ -113,46 +113,31 @@ class CompressionPlugin(TeamPlugin):
             await self._perform_compression(team, memory)
     
     async def _perform_compression(self, team: "PantheonTeam", memory: "Memory", force: bool = False) -> dict:
-        """
-        Perform context compression on the memory.
-        
-        Args:
-            team: The PantheonTeam instance
-            memory: Memory instance to compress
-            force: If True, bypass chunk size checks and force compression
-            
-        Returns:
-            dict with compression result info
-        """
         from pantheon.settings import get_settings
+        from pantheon.team.plugin import CompactHint
 
         settings = get_settings()
         compression_dir = str(settings.learning_dir / "pipeline")
-
-        # Pre-compression flush: call pre_compression hook on all plugins
         session_id = getattr(memory, "id", "default")
-        # Find memory plugin first (outside try block so it's always available)
-        memory_plugin = None
-        from pantheon.internal.memory_system.plugin import MemorySystemPlugin
-        for plugin in team.plugins:
-            if isinstance(plugin, MemorySystemPlugin):
-                memory_plugin = plugin
-                break
 
+        # Call pre_compression on all other plugins; collect any CompactHint.
+        compact_hint: CompactHint | None = None
         try:
             from pantheon.utils.misc import run_func
             for plugin in team.plugins:
                 if plugin is self:
                     continue
                 result = await run_func(plugin.pre_compression, team, session_id, memory._messages)
-                if result:
+                if isinstance(result, CompactHint):
+                    compact_hint = result
+                elif result:
                     logger.info(f"Pre-compression flush from {plugin.__class__.__name__}")
         except Exception as e:
             logger.warning(f"Pre-compression hook failed: {e}")
 
-        # Session Note Compact shortcut: zero LLM call compression
-        if memory_plugin and not force:
-            sm_result = await self._try_session_note_compact(memory_plugin, memory)
+        # Session Note Compact: use hint from memory plugin (zero LLM calls).
+        if compact_hint is not None:
+            sm_result = self._apply_compact_hint(compact_hint, memory)
             if sm_result is not None:
                 return sm_result
 
@@ -224,88 +209,54 @@ class CompressionPlugin(TeamPlugin):
         # Perform compression with force=True to bypass chunk size checks
         return await self._perform_compression(team, memory, force=True)
 
-    async def _try_session_note_compact(
-        self, memory_plugin: "MemorySystemPlugin", memory: "Memory"
-    ) -> dict | None:
-        """Session Note Compact: zero LLM call compression using session notes.
+    def _apply_compact_hint(self, hint: "CompactHint", memory: "Memory") -> dict | None:
+        """Apply a CompactHint from pre_compression to insert a zero-LLM checkpoint."""
+        from pantheon.team.plugin import CompactHint
 
-        Returns compression result dict, or None to fall through to full compact.
-        """
-        session_id = getattr(memory, "id", "default")
+        # Insert checkpoint at boundary; preserve everything after it.
+        # Clamp to leave at least 1 message after the checkpoint.
+        keep_start = min(hint.boundary, len(memory._messages) - 1)
+        keep_start = max(keep_start, 0)
+        keep_start = self._adjust_for_tool_pairs(memory._messages, keep_start)
 
-        try:
-            # Wait for any in-flight session note extraction
-            await memory_plugin.runtime.wait_for_session_note(session_id)
-
-            # Check if session note has real content
-            if memory_plugin.runtime.is_session_note_empty(session_id):
-                return None
-
-            content = memory_plugin.runtime.get_session_note_for_compact(session_id)
-            if not content:
-                return None
-
-            # Get the boundary: how far session note covers
-            boundary = memory_plugin.runtime.get_session_note_boundary(
-                session_id, memory._messages
-            )
-            if boundary is None or boundary <= 0:
-                return None
-
-            # Calculate messages to keep (preserve recent + tool pairs)
-            keep_start = max(boundary, len(memory._messages) - 5)
-            # Adjust to not split tool_use/tool_result pairs
-            keep_start = self._adjust_for_tool_pairs(memory._messages, keep_start)
-
-            if keep_start >= len(memory._messages):
-                return None
-
-            # Build compact result — use role="compression" to match LLM compression format
-            # Non-destructive: insert checkpoint at keep_start, preserving all messages
-            original_count = len(memory._messages)
-            compression_index = sum(
-                1 for m in memory._messages if m.get("role") == "compression"
-            ) + 1
-            summary_msg = {
-                "role": "compression",
-                "content": (
-                    f"{{{{ CHECKPOINT {compression_index} }}}}\n"
-                    f"**The earlier parts of this conversation have been truncated due to its long length. "
-                    f"The following content summarizes the truncated context so that you may continue your work.**\n\n"
-                    f"{content}"
-                ),
-                "_metadata": {
-                    "method": "session_note_compact",
-                    "original_message_count": original_count,
-                    "compressed_token_count": len(memory._messages),
-                    "compression_index": compression_index,
-                    "timestamp": datetime.now().isoformat(),
-                    "current_cost": 0.0,
-                },
-            }
-            # Insert checkpoint at keep_start (non-destructive, like LLM compression)
-            memory._messages = (
-                memory._messages[:keep_start]
-                + [summary_msg]
-                + memory._messages[keep_start:]
-            )
-            # Compression inserts in the middle — must rewrite to persist the checkpoint.
-            if memory._backend:
-                memory._backend.rewrite_messages(memory.id, memory._messages)
-                memory._backend._last_persisted_count[memory.id] = len(memory._messages)
-
-            logger.info(
-                f"Session Note Compact: inserted checkpoint at index {keep_start} "
-                f"(zero LLM calls)"
-            )
-            return {
-                "success": True,
-                "method": "session_note_compact",
-                "compressed_messages": original_count - len(memory._messages),
-            }
-        except Exception as e:
-            logger.debug(f"Session Note Compact failed, falling back: {e}")
+        if keep_start >= len(memory._messages):
             return None
+
+        original_count = len(memory._messages)
+        compression_index = sum(
+            1 for m in memory._messages if m.get("role") == "compression"
+        ) + 1
+        summary_msg = {
+            "role": "compression",
+            "content": (
+                f"{{{{ CHECKPOINT {compression_index} }}}}\n"
+                f"**The earlier parts of this conversation have been truncated due to its long length. "
+                f"The following content summarizes the truncated context so that you may continue your work.**\n\n"
+                f"{hint.summary}"
+            ),
+            "_metadata": {
+                "method": "session_note_compact",
+                "original_message_count": original_count,
+                "compression_index": compression_index,
+                "timestamp": datetime.now().isoformat(),
+                "current_cost": 0.0,
+            },
+        }
+        memory._messages = (
+            memory._messages[:keep_start]
+            + [summary_msg]
+            + memory._messages[keep_start:]
+        )
+        if memory._backend:
+            memory._backend.rewrite_messages(memory.id, memory._messages)
+            memory._backend._last_persisted_count[memory.id] = len(memory._messages)
+
+        logger.info(f"Session Note Compact: inserted checkpoint at index {keep_start} (zero LLM calls)")
+        return {
+            "success": True,
+            "method": "session_note_compact",
+            "compressed_messages": original_count - len(memory._messages),
+        }
 
     @staticmethod
     def _adjust_for_tool_pairs(messages: list[dict], start: int) -> int:

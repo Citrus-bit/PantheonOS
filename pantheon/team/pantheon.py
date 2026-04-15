@@ -767,12 +767,15 @@ class PantheonTeam(Team):
         if memory is None:
             memory = Memory(name="pantheon-team")
 
-        # Call on_run_start hook for plugins
+        # Call on_run_start hook for plugins; allow plugins to return a modified msg.
         run_context = {
             "memory": memory,
             "kwargs": kwargs,
         }
-        await self._call_plugin_hook("on_run_start", self, msg, run_context)
+        for plugin in self.plugins:
+            result = await run_func(plugin.on_run_start, self, msg, run_context)
+            if result is not None:
+                msg = result
 
         # Record turn start for learning
         turn_start_index = len(memory._messages)

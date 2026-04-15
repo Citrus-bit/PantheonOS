@@ -60,6 +60,7 @@ class LearningRuntime:
     def build_skill_guidance(self, agent_name: str | None = None) -> str:
         """Build skill guidance text for injection into agent.instructions.
 
+        Applies skill_index_max_items and skill_index_max_tokens limits from config.
         Returns empty string if no skills exist.
         """
         if not self.injector:
@@ -68,6 +69,27 @@ class LearningRuntime:
         skill_index = self.injector.build_skill_index(agent_name)
         if not skill_index:
             return ""
+
+        # Apply item limit
+        max_items = self.config.get("skill_index_max_items", 50)
+        lines = skill_index.splitlines()
+        skill_lines = [l for l in lines if l.strip().startswith("-")]
+        if len(skill_lines) > max_items:
+            # Keep category headers + first max_items skill lines
+            kept, count = [], 0
+            for line in lines:
+                if line.strip().startswith("-"):
+                    if count >= max_items:
+                        continue
+                    count += 1
+                kept.append(line)
+            skill_index = "\n".join(kept).strip()
+
+        # Apply token budget (approx 4 chars per token)
+        max_tokens = self.config.get("skill_index_max_tokens", 2000)
+        max_chars = max_tokens * 4
+        if len(skill_index) > max_chars:
+            skill_index = skill_index[:max_chars].rsplit("\n", 1)[0]
 
         return SKILLS_GUIDANCE.format(skill_index=skill_index)
 

@@ -9,10 +9,13 @@ from typing import Any
 DEFAULT_CONFIG: dict[str, Any] = {
     "enabled": True,
     "model": "low",
-    "extract_enabled": False,  # Auto-extraction disabled by default (use skill_manage tool)
-    "extract_model": None,  # None = use model
-    "extract_nudge_interval": 5,  # Extract every N runs (when extract_enabled=true)
+    "extract_enabled": False,
+    "extract_model": None,
+    "extract_nudge_interval": 5,
     "disabled_skills": [],
+    # Skill index injection limits
+    "skill_index_max_items": 50,    # Max number of skills to list in system prompt
+    "skill_index_max_tokens": 2000, # Approx token budget for skill index (~4 chars/token)
 }
 
 

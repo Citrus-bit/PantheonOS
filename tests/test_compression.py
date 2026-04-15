@@ -956,9 +956,8 @@ class TestCompressionPluginIntegration:
         """
         Path A: Session Note Compact (zero-LLM compression).
 
-        Precondition: session note has content written by maybe_update_session_note.
-        Expected: _try_session_note_compact succeeds, message count drops,
-                  first message is [Session Note Compact] summary.
+        pre_compression now force-updates the session note internally, so no
+        pre-seeding is required. The compact path should succeed automatically.
         """
         from pantheon.internal.memory import Memory
 
@@ -977,16 +976,7 @@ class TestCompressionPluginIntegration:
                 "_metadata": {"total_tokens": 5000, "max_tokens": 8000},
             })
 
-        original_count = len(memory._messages)
-        session_id = memory.id
-
-        # Write session note first (simulating on_run_end already ran)
-        # threshold is now 100 tokens (from config), so any non-empty context triggers it
-        await mem_rt.maybe_update_session_note(session_id, memory._messages, 200)
-        await mem_rt.wait_for_session_note(session_id)
-
-        # Add more messages AFTER session note was written so boundary < total
-        # This ensures keep_start < len(messages), allowing compact to proceed
+        # Add more messages so boundary < total after force_update
         for i in range(8, 14):
             memory._messages.append({"role": "user", "content": f"Q{i}: What about Python threading?"})
             memory._messages.append({
@@ -995,11 +985,8 @@ class TestCompressionPluginIntegration:
                 "_metadata": {"total_tokens": 5000, "max_tokens": 8000},
             })
 
-        total_count = len(memory._messages)
-        print(f"\n[original count at session write] {original_count}")
-        print(f"[total count before compress] {total_count}")
-        print(f"[session note empty?] {mem_rt.is_session_note_empty(session_id)}")
-        print(f"[session note content]\n{mem_rt.get_session_note_for_compact(session_id)[:200]}")
+        original_count = len(memory._messages)
+        session_id = memory.id
 
         result = await comp_plugin._perform_compression(team, memory)
 
@@ -1010,7 +997,6 @@ class TestCompressionPluginIntegration:
         assert result.get("method") == "session_note_compact"
         assert len(memory._messages) > original_count, "Message count should increase (checkpoint inserted)"
 
-        # Find the compression checkpoint
         compression_msgs = [m for m in memory._messages if m.get("role") == "compression"]
         assert len(compression_msgs) == 1, "Should have exactly one compression checkpoint"
         assert "CHECKPOINT" in compression_msgs[0]["content"]
@@ -1021,9 +1007,8 @@ class TestCompressionPluginIntegration:
         """
         Path B: LLM fallback compression (when Session Note Compact is unavailable).
 
-        Precondition: session note is empty (never written).
-        Expected: ContextCompressor.compress() runs, inserts role:compression checkpoint;
-                  original messages are preserved (non-destructive).
+        Disable session_note on the runtime so force_update produces no CompactHint,
+        forcing the LLM compressor to run.
         """
         from pantheon.internal.memory import Memory
 
@@ -1031,9 +1016,11 @@ class TestCompressionPluginIntegration:
         team, mem_rt, mem_plugin, comp_plugin = _make_team_with_compression(tmp_path)
         await team.async_setup()
 
+        # Disable session note so pre_compression returns no CompactHint
+        mem_rt.session_note = None
+
         memory = Memory(name="llm-compress-test")
 
-        # Build history without writing session note → forces LLM fallback
         for i in range(6):
             memory._messages.append({"role": "user", "content": f"Q{i}: Explain the Python GIL."})
             memory._messages.append({
@@ -1042,28 +1029,18 @@ class TestCompressionPluginIntegration:
                 "_metadata": {"total_tokens": 5000, "max_tokens": 8000},
             })
 
-        original_count = len(memory._messages)
-        session_id = memory.id
+        print(f"\n[original message count] {len(memory._messages)}")
 
-        assert mem_rt.is_session_note_empty(session_id), "session note must be empty to trigger LLM fallback"
-
-        print(f"\n[original message count] {original_count}")
-
-        # force=True bypasses chunk-size guard
         result = await comp_plugin._perform_compression(team, memory, force=True)
 
         print(f"\n[compression result] {result}")
-        print(f"[message count after] {len(memory._messages)}")
-
         roles = [m["role"] for m in memory._messages]
         print(f"[message roles] {roles}")
 
         assert result.get("success"), f"LLM compression should succeed: {result}"
-        # LLM compression inserts role:compression checkpoint (non-destructive)
         assert "compression" in roles, "role:compression checkpoint should be inserted"
 
         comp_msg = next(m for m in memory._messages if m["role"] == "compression")
-        print(f"[compression message]\n{comp_msg['content'][:300]}")
         assert len(comp_msg["content"]) > 50, "compression message should have real content"
 
     @_requires_gemini

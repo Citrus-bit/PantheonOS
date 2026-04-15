@@ -199,6 +199,15 @@
         "selection_max_memories": 15,     // Max memories to select per query
         "selection_max_chats": 5,         // Max recent chats to select per query
         "session_notes_retrieval_limit": 15,  // Max session notes to scan (must be >= selection_max_chats)
+        // Static index injection: inject MEMORY.md index into system prompt at startup.
+        // Disabled by default — dynamic retrieval (on_run_start) handles context per query.
+        // Enable if you want the agent to always see the full memory index.
+        "static_index_enabled": false,
+        // Dynamic retrieval injection mode:
+        // - "index": inject title, summary, and file path only (default, low token cost)
+        //   Agent can read the full file via file_manager if needed.
+        // - "full": inject complete file content
+        "inject_mode": "index",
         // Pre-compression flush: save important info to daily log before compression
         "flush_enabled": true,
         // Model for flush extraction (null = use selection_model)
@@ -228,14 +237,16 @@
         // Uses quality level: "high", "normal", "low", or specific model name
         "model": "low",
         // Background auto-extraction (disabled by default, use skill_manage tool)
-        // Can be enabled for automatic extraction or future Dream integration
         "extract_enabled": false,
         // Model for skill extraction (null = use model above)
         "extract_model": null,
         // Extract skills every N runs (when extract_enabled=true)
         "extract_nudge_interval": 5,
         // Skills to disable (list of skill names)
-        "disabled_skills": []
+        "disabled_skills": [],
+        // Skill index injection limits (cap system prompt size)
+        "skill_index_max_items": 50,    // Max number of skills listed in system prompt
+        "skill_index_max_tokens": 2000  // Approx token budget for skill index
     },
     // ===== LLM Retry Configuration =====
     // Exponential backoff retry for transient LLM API errors (e.g., mid-stream overloaded)

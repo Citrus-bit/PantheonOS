@@ -154,6 +154,29 @@ class SessionNoteExtractor:
                 logger.debug(f"Session note drain pass for {session_id}")
                 await self.maybe_update(session_id, pending_msgs, pending_tokens, jsonl_path)
 
+    async def force_update(self, session_id: str, messages: list[dict]) -> bool:
+        """Force a session note update, bypassing all thresholds.
+
+        Called before compression to ensure the note reflects current state.
+        """
+        state = self._state(session_id)
+        if state.extraction_in_progress:
+            await self.wait_for_extraction(session_id)
+            return False  # in-flight extraction just finished, use its result
+
+        state.extraction_in_progress = True
+        state.extraction_started_at = time.time()
+        try:
+            await self._extract(session_id, messages)
+            state.initialized = True
+            state.last_message_index = len(messages)
+            return True
+        except Exception as e:
+            logger.warning(f"Session note force update failed: {e}")
+            return False
+        finally:
+            state.extraction_in_progress = False
+
     def read(self, session_id: str) -> str:
         """Read session note content (without frontmatter). Used by compact shortcut."""
         import frontmatter

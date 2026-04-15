@@ -11,19 +11,25 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "enabled": True,
     "selection_model": "low",
     "flush_enabled": True,
-    "flush_model": None,  # None = use selection_model
+    "flush_model": None,
     "dream_enabled": True,
-    "dream_model": None,  # None = use selection_model
+    "dream_model": None,
     "dream_min_hours": 24,
     "dream_min_sessions": 5,
-    # Session note thresholds (configurable for testing)
+    # Session note thresholds
     "session_note_init_tokens": 10_000,
     "session_note_update_tokens": 5_000,
     "session_note_tool_calls": 3,
     # Retrieval settings
-    "selection_max_memories": 15,  # Max memories to select
-    "selection_max_chats": 5,  # Max recent chats to select
-    "session_notes_retrieval_limit": 15,  # Max session notes to scan
+    "selection_max_memories": 15,
+    "selection_max_chats": 5,
+    "session_notes_retrieval_limit": 15,
+    # Static index injection (disabled by default — dynamic retrieve handles context)
+    "static_index_enabled": False,
+    # Dynamic retrieval injection mode:
+    # - "index": inject title, summary, and file path only (default, low token cost)
+    # - "full": inject complete file content
+    "inject_mode": "index",
 }
 
 

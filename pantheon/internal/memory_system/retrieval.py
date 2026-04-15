@@ -8,6 +8,7 @@ and judge relevance — no embedding or vector database required.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -229,10 +230,14 @@ class MemoryRetriever:
                     {"role": "system", "content": system_msg},
                     {"role": "user", "content": user_msg},
                 ],
-                model_params={"temperature": 0.0, "response_format": {"type": "json_object"}},
+                model_params={"temperature": 0.0},
             )
             content = response.choices[0].message.content or "{}"
-            data = json.loads(content)
+            try:
+                data = json.loads(content)
+            except json.JSONDecodeError:
+                match = re.search(r'\{.*\}', content, re.DOTALL)
+                data = json.loads(match.group()) if match else {}
 
             selected_memories = data.get("selected_memories", [])
             selected_chats = data.get("selected_chats", [])
@@ -244,9 +249,6 @@ class MemoryRetriever:
 
             return selected_memories[:max_memories], selected_chats[:max_chats]
 
-        except json.JSONDecodeError as e:
-            logger.warning(f"LLM memory selection failed: invalid JSON: {e}")
-            return [], []
         except Exception as e:
             logger.warning(f"LLM memory selection failed: {e}")
             return [], []
