@@ -291,8 +291,8 @@ async def start_services(
     id_hash: str | None = None,
     endpoint_mode: str = "embedded",
     nats_servers: str = None,
-    auto_start_nats: bool = False,
-    auto_ui: str | bool | None = None,
+    auto_start_nats: bool = True,
+    auto_ui: str | bool | None = True,
 ):
     """Start the chatroom service.
 
@@ -310,10 +310,12 @@ async def start_services(
                      Multiple servers separated by pipe (|). Overrides NATS_SERVERS env var.
                      Example: "wss://pantheon.aristoteleo.com/nats"
         auto_start_nats: Automatically start local NATS server (only works with --endpoint-mode embedded).
-                        Default: False. When enabled, provides nats://localhost:4222 and ws://localhost:8080.
+                        Default: True (provides nats://localhost:4222 and ws://localhost:8080).
+                        Disable with --no-auto-start-nats when connecting to an external NATS.
         auto_ui: Automatically open browser with auto-connect config when endpoint is ready.
-                Default: False. Requires --auto-start-nats. Can specify custom URL or use default
-                Vercel deployment. Examples: --auto-ui or --auto-ui "http://localhost:5173"
+                Default: True (opens https://pantheon-ui.aristoteleo.com). Requires --auto-start-nats.
+                Pass a custom URL like --auto-ui "http://localhost:5173" to point at a local dev
+                frontend, or --no-auto-ui to suppress (e.g. headless / CI).
 
     Note:
         API keys should be set via:
@@ -510,11 +512,16 @@ async def start_services(
         )
 
         try:
-            # Check if NATS is already running — reuse it instead of starting a new one
+            # 1) Try project-managed NATS (started by us in a previous run)
             server_info = await nats_manager.detect_existing()
 
+            # 2) Otherwise probe for an external NATS on standard ports
+            if server_info is None:
+                server_info = await nats_manager.detect_external()
+
             if server_info:
-                logger.info(f"✓ Reusing existing NATS server")
+                origin = "external" if server_info.get("external") else "project-managed"
+                logger.info(f"✓ Reusing existing NATS server ({origin})")
                 logger.info(f"  TCP URL: {server_info['tcp_url']}")
                 logger.info(f"  WebSocket URL: {server_info['ws_url']}")
                 logger.info(f"  Monitoring: {server_info['http_url']}")
