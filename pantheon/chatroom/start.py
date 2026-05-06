@@ -293,6 +293,7 @@ async def start_services(
     nats_servers: str = None,
     auto_start_nats: bool = True,
     auto_ui: str | bool | None = True,
+    sync_templates: bool = False,
 ):
     """Start the chatroom service.
 
@@ -316,6 +317,8 @@ async def start_services(
                 Default: True (opens https://pantheon-ui.aristoteleo.com). Requires --auto-start-nats.
                 Pass a custom URL like --auto-ui "http://localhost:5173" to point at a local dev
                 frontend, or --no-auto-ui to suppress (e.g. headless / CI).
+        sync_templates: Force-sync all factory templates (agents, teams, prompts, skills)
+                       before starting. Useful after image upgrades.
 
     Note:
         API keys should be set via:
@@ -330,6 +333,15 @@ async def start_services(
     """
     # DIAGNOSTIC: Log startup parameters for debugging
     logger.debug(f"[DIAGNOSTIC] start_services() called with auto_start_nats={auto_start_nats}, auto_ui={auto_ui}")
+
+    if sync_templates:
+        from pantheon.utils import log
+        log.set_level(log_level or "INFO")
+        from pantheon.factory.template_manager import get_template_manager
+        logger.info("[sync-templates] Force-syncing factory templates...")
+        tm = get_template_manager()
+        total = tm.force_sync_factory_templates()
+        logger.info(f"[sync-templates] Synced {total} template(s) from factory")
 
     # Validate auto_ui parameter
     if auto_ui and not auto_start_nats:

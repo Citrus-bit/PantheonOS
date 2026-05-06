@@ -317,6 +317,33 @@ class TemplateManager:
         except Exception as e:
             logger.error(f"Failed to copy default skill(s): {e}")
 
+    def force_sync_factory_templates(self):
+        """Force-sync ALL factory templates (including skills) to global ~/.pantheon/.
+
+        Clears hash tracking and copies everything with overwrite=True.
+        Used for image upgrades where stale templates need to be replaced.
+        """
+        hash_file = self.settings.pantheon_dir / ".factory_hashes.json"
+        if hash_file.exists():
+            hash_file.unlink()
+
+        targets = [
+            ("agents", self.settings.global_agents_dir, "agent(s)"),
+            ("teams", self.settings.global_teams_dir, "team(s)"),
+            ("prompts", self.settings.global_prompts_dir, "prompt(s)"),
+            ("skills", self.settings.global_skills_dir, "skill(s)"),
+        ]
+        total = 0
+        for subdir, dest_dir, label in targets:
+            try:
+                total += self._copy_missing_templates(
+                    self.system_templates_dir / subdir, dest_dir, label, overwrite=True
+                )
+            except Exception as e:
+                logger.error(f"Failed to force-sync {label}: {e}")
+        logger.info(f"Force-sync complete: {total} file(s) synced")
+        return total
+
     def _ensure_settings(self):
         """Copy settings.json from templates if it doesn't exist in .pantheon/"""
         try:
