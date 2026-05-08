@@ -628,15 +628,15 @@
       "openai_compatible": true,
       "chat_output_token_param": "max_tokens",
       "models": {
-        "deepseek-chat": {
-          "max_input_tokens": 131072,
-          "max_output_tokens": 8192,
-          "input_cost_per_million": 0.27,
-          "output_cost_per_million": 1.1,
+        "deepseek-v4-pro": {
+          "max_input_tokens": 1000000,
+          "max_output_tokens": 393216,
+          "input_cost_per_million": 0.435,
+          "output_cost_per_million": 0.87,
           "supports_vision": false,
           "supports_function_calling": true,
           "supports_response_schema": true,
-          "supports_reasoning": false,
+          "supports_reasoning": true,
           "supports_audio_input": false,
           "supports_audio_output": false,
           "supports_web_search": false,
@@ -644,14 +644,14 @@
           "supports_computer_use": false,
           "supports_assistant_prefill": true
         },
-        "deepseek-reasoner": {
-          "max_input_tokens": 131072,
-          "max_output_tokens": 8192,
-          "input_cost_per_million": 0.55,
-          "output_cost_per_million": 2.19,
+        "deepseek-v4-flash": {
+          "max_input_tokens": 1000000,
+          "max_output_tokens": 393216,
+          "input_cost_per_million": 0.14,
+          "output_cost_per_million": 0.28,
           "supports_vision": false,
-          "supports_function_calling": false,
-          "supports_response_schema": false,
+          "supports_function_calling": true,
+          "supports_response_schema": true,
           "supports_reasoning": true,
           "supports_audio_input": false,
           "supports_audio_output": false,

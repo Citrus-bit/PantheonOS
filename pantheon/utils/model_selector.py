@@ -197,12 +197,13 @@ DEFAULT_PROVIDER_MODELS = {
         "normal": ["zai/glm-5", "zai/glm-4.6", "zai/glm-4.5", "zai/glm-4.5v"],
         "low": ["zai/glm-4.5-air", "zai/glm-4.5-flash"],
     },
-    # DeepSeek: V3/R1 series
+    # DeepSeek: V4 series (1M context, dual thinking/non-thinking modes)
     # https://api-docs.deepseek.com/
+    # Legacy `deepseek-chat` / `deepseek-reasoner` retire 2026-07-24.
     "deepseek": {
-        "high": ["deepseek/deepseek-chat", "deepseek/deepseek-reasoner"],
-        "normal": ["deepseek/deepseek-chat"],
-        "low": ["deepseek/deepseek-chat"],
+        "high": ["deepseek/deepseek-v4-pro"],
+        "normal": ["deepseek/deepseek-v4-pro"],
+        "low": ["deepseek/deepseek-v4-flash"],
     },
     # MiniMax: M2.5/M2.1 series
     # https://platform.minimaxi.com/
