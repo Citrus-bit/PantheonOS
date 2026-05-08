@@ -341,7 +341,11 @@ class Settings:
 
         return {
             "enable": compression.get("enable", False),  # Disabled by default
-            "compression_model": compression.get("compression_model"),  # None uses Agent's default
+            # None / "" / "auto" → use active agent's model at run time.
+            # Set to a specific model id (e.g. "openai/gpt-4o-mini") or a tier
+            # ("high"/"normal"/"low") to pin compression to a specific model
+            # regardless of which agent is currently chatting.
+            "compression_model": compression.get("compression_model"),
             "threshold": compression.get("threshold", 0.8),
             "preserve_recent_messages": compression.get("preserve_recent_messages", 5),
             "max_tool_arg_length": compression.get("max_tool_arg_length", 2000),

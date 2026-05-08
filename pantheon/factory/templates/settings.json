@@ -178,8 +178,11 @@
     "context_compression": {
         // Enable context compression (disabled by default)
         "enable": true,
-        // LLM model for compression, Uses quality level: "high", "normal", "low", or specific model name
-        "compression_model": "normal",
+        // LLM model for compression. "auto" (default) follows the active agent's
+        // model — keeps the compressor on the same provider and quota as your
+        // chat. To pin a specific model regardless of the active agent, set a
+        // tier ("high"/"normal"/"low") or a model id (e.g. "openai/gpt-4o-mini").
+        "compression_model": "auto",
         // Trigger compression when token usage reaches this percentage (0.0-1.0)
         // TEST MODE: set to 0 to compress based on message count (min_messages_for_compression)
         "threshold": 0.8,
@@ -215,9 +218,13 @@
     "memory_system": {
         // Enable the long-term memory system
         "enabled": true,
-        // LLM model for memory selection (reads frontmatter, judges relevance)
-        // Uses quality level: "high", "normal", "low", or specific model name
-        "selection_model": "low",
+        // LLM model for memory selection (reads frontmatter, judges relevance).
+        // "auto" (default) follows the active agent's model so internal memory
+        // tasks (extractor / session-note / flush / dream / selector) stay on
+        // the same provider/quota as your chat. To pin to a specific model
+        // regardless of the active agent, use a tier ("high"/"normal"/"low")
+        // or a specific model id (e.g. "openai/gpt-4o-mini").
+        "selection_model": "auto",
         // Retrieval limits for memories and recent chats
         "selection_max_memories": 15, // Max memories to select per query
         "selection_max_chats": 5, // Max recent chats to select per query
