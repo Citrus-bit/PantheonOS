@@ -195,6 +195,7 @@ workdir**
 # Ignore all markdown files in root except README.md
 /*.md
 !/README.md
+!/architecture.md
 
 # Ignore all JSON files in root (configs, session data, etc.)
 /*.json
