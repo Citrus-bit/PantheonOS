@@ -278,6 +278,17 @@
         "skill_index_max_items": 50, // Max number of skills listed in system prompt
         "skill_index_max_tokens": 2000 // Approx token budget for skill index
     },
+    // ===== Vision / Image Observation Configuration =====
+    // Controls the model used by observe_images when the active chat model
+    // cannot natively see images (non-Anthropic/Gemini/OpenAI providers).
+    "vision": {
+        // "auto"  : pick a vision-capable model across configured providers,
+        //           preferring the "normal" quality tier, then high, then low.
+        // tier    : "high" / "normal" / "low" — force a quality tier.
+        // model id: e.g. "gemini-cli/gemini-3-flash-preview" — pin a model;
+        //           the auto chain is still used as fallback if it fails.
+        "vision_model": "auto"
+    },
     // ===== LLM Retry Configuration =====
     // Exponential backoff retry for transient LLM API errors (e.g., mid-stream overloaded)
     "llm_retry": {

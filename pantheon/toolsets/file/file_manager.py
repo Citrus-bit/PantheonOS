@@ -1059,11 +1059,82 @@ class FileManagerToolSet(FileManagerToolSetBase):
                 result["warnings"] = blank_warnings
             return result
 
-        # Path B: legacy sub-agent — provider cannot accept images in tool result.
-        logger.info(
-            f"observe_images: sub-agent mode ({active_model}), "
-            f"provider does not support tool-result images"
-        )
+        # Path B: sub-agent mode — provider cannot accept images in tool result.
+        # Build the sub-agent fallback chain, honouring the `vision.vision_model`
+        # setting:
+        #   "auto"        → active model (if vision-capable) then a cross-provider
+        #                   chain, "normal" quality tier preferred.
+        #   "high/normal/low" → same, but force that quality tier first.
+        #   a model id    → pin that model first, auto chain as fallback.
+        # Iterate the chain at call time so a 429 / auth failure on one
+        # provider falls through to the next instead of returning empty.
+        from pantheon.utils.provider_registry import get_model_info
+        from pantheon.utils.model_selector import get_model_selector
+        from pantheon.settings import get_settings
+
+        try:
+            info = get_model_info(active_model) if active_model else {}
+            active_supports_vision = bool(info.get("supports_vision"))
+        except Exception:
+            active_supports_vision = False
+
+        vision_cfg = get_settings().get_vision_model()
+        _QUALITY_TIERS = {"high", "normal", "low"}
+        selector = get_model_selector()
+
+        pinned_model: str | None = None
+        try:
+            if vision_cfg in _QUALITY_TIERS:
+                # Force the configured tier first, then the rest as fallback.
+                tier_order = [vision_cfg] + [
+                    t for t in ("normal", "high", "low") if t != vision_cfg
+                ]
+                cross_chain = selector.find_capable_models_across_providers(
+                    "vision", tier_order=tier_order
+                )
+            elif vision_cfg and vision_cfg != "auto":
+                # Specific model id — pin it, keep the auto chain as fallback.
+                pinned_model = vision_cfg
+                cross_chain = selector.find_capable_models_across_providers("vision")
+            else:
+                cross_chain = selector.find_capable_models_across_providers("vision")
+        except Exception as e:
+            logger.warning(f"observe_images: vision fallback search failed: {e}")
+            cross_chain = []
+
+        # Compose the candidate chain. None means "let sub-agent inherit
+        # the active model" — semantically equivalent to active_model here
+        # but keeps the existing inheritance machinery intact.
+        candidates: list[str | None] = []
+        if pinned_model:
+            candidates.append(pinned_model)
+        if active_supports_vision:
+            candidates.append(None)
+        # Append cross-provider vision models, skipping ones that duplicate
+        # the active model (tried as inherited) or the pinned model.
+        for m in cross_chain:
+            if m == active_model or m == pinned_model:
+                continue
+            candidates.append(m)
+
+        if not candidates:
+            logger.warning(
+                f"observe_images: active model {active_model!r} is not "
+                "vision-capable and no other vision-capable provider has "
+                "credentials configured."
+            )
+            return {
+                "success": False,
+                "error": (
+                    f"The active model '{active_model}' does not support "
+                    "image input, and no other vision-capable provider is "
+                    "configured. Add an API key for a vision-capable "
+                    "provider (Anthropic / OpenAI / Gemini / Z.ai / "
+                    "Moonshot / Qwen / Groq / Mistral / OpenRouter) or "
+                    "switch the active agent to a vision-capable model."
+                ),
+            }
+
         messages = [
             {
                 "role": "user",
@@ -1076,27 +1147,61 @@ class FileManagerToolSet(FileManagerToolSetBase):
                 {"type": "image_url", "image_url": {"url": base64_uri}}
             )
 
-        try:
-            response = await context.call_agent(messages=messages, use_memory=True)
+        last_error: str | None = None
+        for sub_agent_model in candidates:
+            label = sub_agent_model or f"inherit:{active_model}"
+            logger.info(f"observe_images: sub-agent attempt with {label}")
+            try:
+                response = await context.call_agent(
+                    messages=messages,
+                    model=sub_agent_model,
+                    use_memory=True,
+                )
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(f"observe_images: sub-agent {label} raised: {e}")
+                continue
+
+            if not response.get("success"):
+                last_error = response.get("error") or "sub-agent returned no response"
+                logger.warning(
+                    f"observe_images: sub-agent {label} failed: {last_error}"
+                )
+                continue
 
             content = response.get("response", "")
+            if not content.strip():
+                last_error = (
+                    f"sub-agent {label} returned empty content "
+                    "(model likely cannot interpret the image)"
+                )
+                logger.warning(f"observe_images: {last_error}")
+                continue
+
             if blank_warnings:
                 warning_msg = "\n".join(blank_warnings)
                 content = f"SYSTEM DETECTED ISSUES:\n{warning_msg}\n\nLLM Observation:\n{content}"
 
-            result = {
+            result: dict = {
                 "success": True,
                 "content": content,
+                "model_used": sub_agent_model or active_model,
             }
             if "_metadata" in response:
                 result.setdefault("_metadata", {}).update(response["_metadata"])
-
             return result
-        except Exception as e:
-            logger.opt(exception=True).error(
-                "Error calling agent for image observation: {}", e
-            )
-            return {"success": False, "error": str(e)}
+
+        # Every candidate failed.
+        logger.error(
+            f"observe_images: all sub-agent candidates failed; last error: {last_error}"
+        )
+        return {
+            "success": False,
+            "error": (
+                f"Image observation failed across all configured vision-capable "
+                f"providers. Last error: {last_error}"
+            ),
+        }
 
     @tool(exclude=True)
     async def observe_pdf_screenshots(

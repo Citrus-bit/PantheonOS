@@ -353,6 +353,18 @@ class Settings:
             "retry_after_messages": compression.get("retry_after_messages", 10),
         }
 
+    def get_vision_model(self) -> str:
+        """Get the configured model spec for image observation (observe_images).
+
+        Returns:
+            "auto"          → pick a vision-capable model across providers
+            "high"/"normal"/"low" → force a quality tier
+            a model id      → pin a specific model (auto chain as fallback)
+        """
+        self._ensure_loaded()
+        vision = self._settings.get("vision", {})
+        return vision.get("vision_model", "auto") or "auto"
+
     def get_detection_config(self) -> Dict[str, bool]:
         """
         Get attachment detection configuration.

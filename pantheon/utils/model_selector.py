@@ -680,6 +680,78 @@ class ModelSelector:
 
         return result
 
+    def find_capable_models_across_providers(
+        self,
+        capability: str,
+        prefer_provider: str | None = None,
+        tier_order: list[str] | None = None,
+    ) -> list[str]:
+        """Find a fallback chain of capable models reachable with current credentials.
+
+        Unlike `resolve_model("vision")` which only searches the active provider
+        and silently falls back to non-capable models when that provider has
+        none, this walks the priority list and returns every model whose
+        catalog entry actually has the capability flag set.
+
+        Search order:
+        1. ``prefer_provider`` (if any of its models match).
+        2. The user's configured priority list (``models.provider_priority``)
+           or ``DEFAULT_PROVIDER_PRIORITY``.
+        3. Any other provider with credentials.
+
+        Within each provider, tiers are walked in ``tier_order`` (default:
+        normal → high → low) so a solid mid-tier model wins by default,
+        falling back to a stronger one and only then to the cheap tier.
+
+        Returns:
+            Ordered list of ``provider/model`` strings (deduplicated). Empty
+            list if no provider with valid credentials lists a capable model.
+            Callers should iterate and try each on failure (e.g. when a
+            provider returns 429 / auth errors and we need to fall through
+            to a different provider).
+        """
+        if capability not in CAPABILITY_MAP:
+            logger.warning(f"Unknown capability: {capability}")
+            return []
+
+        tier_order = tier_order or ["normal", "high", "low"]
+        available = self._get_available_providers()
+        if not available:
+            return []
+
+        priority = list(self.settings.get(
+            "models.provider_priority", DEFAULT_PROVIDER_PRIORITY
+        ))
+        # Stable order: prefer_provider first (if set), then priority list,
+        # then any other available provider not in priority.
+        ordered: list[str] = []
+        if prefer_provider and prefer_provider in available:
+            ordered.append(prefer_provider)
+        for p in priority:
+            if p in available and p not in ordered:
+                ordered.append(p)
+        for p in available:
+            if p not in ordered:
+                ordered.append(p)
+
+        chain: list[str] = []
+        seen: set[str] = set()
+        for provider in ordered:
+            provider_models = self._get_provider_models(provider)
+            if not provider_models:
+                continue
+            for tier in tier_order:
+                models = provider_models.get(tier, [])
+                if isinstance(models, str):
+                    models = [models]
+                for model in models:
+                    if model in seen:
+                        continue
+                    if self._check_model_capability(model, capability):
+                        chain.append(model)
+                        seen.add(model)
+        return chain
+
     def resolve_model_for_provider(self, tag: str, provider: str | None) -> list[str]:
         """Resolve tag(s) using a preferred provider when possible.
 
