@@ -445,24 +445,17 @@ class FileManagerToolSetBase(ToolSet):
 
 
 def path_to_image_url(path: str) -> str:
-    """Convert an image file to a base64 PNG data URL.
-    
-    Reads file bytes into memory first to avoid PIL lazy loading issues
-    (e.g., 'PngImageFile' object has no attribute '_im').
-    All images are converted to PNG format for consistency.
+    """Convert an image file to a downscaled base64 data URL.
+
+    Delegates to vision.get_image_base64, which resizes the image so its
+    longest edge is at most MAX_IMAGE_DIMENSION (1568px) and picks a
+    size-aware encoding. Downscaling here keeps payloads small for both the
+    LLM and the frontend — a full 2481x3508 PNG decodes to ~33 MB of RGBA,
+    and many of those crash the browser renderer.
     """
-    from PIL import Image
-    
-    # Read file bytes into memory first to avoid lazy loading issues
-    with open(path, "rb") as f:
-        file_bytes = f.read()
-    
-    # Open from memory buffer - this forces complete loading
-    with Image.open(io.BytesIO(file_bytes)) as img:
-        with io.BytesIO() as buffer:
-            img.save(buffer, format="PNG")
-            buffer.seek(0)
-            return f"data:image/png;base64,{base64.b64encode(buffer.getvalue()).decode()}"
+    from pantheon.utils.vision import get_image_base64
+
+    return get_image_base64(path)
 
 
 def is_image_blank(image_path: str | Path) -> bool:
@@ -1428,21 +1421,28 @@ class FileManagerToolSet(FileManagerToolSetBase):
             except OSError as e:
                 return {"success": False, "error": f"Cannot access file: {str(e)}"}
 
-            # Encode image to base64
+            # Encode image to base64. Raster formats are downscaled (longest
+            # edge <= MAX_IMAGE_DIMENSION) before encoding: a full-size
+            # microscopy/figure PNG (e.g. 2481x3508) decodes to ~33 MB of
+            # RGBA in the browser, and a chat full of them exhausts the
+            # renderer's memory and crashes the tab. SVG (vector) and GIF
+            # (to preserve animation) are sent through unchanged.
             try:
-                with open(resolved_path, "rb") as f:
-                    b64 = base64.b64encode(f.read()).decode("utf-8")
+                if format in (".svg", ".gif"):
+                    with open(resolved_path, "rb") as f:
+                        b64 = base64.b64encode(f.read()).decode("utf-8")
+                    mime_format = "svg+xml" if format == ".svg" else "gif"
+                    data_uri = f"data:image/{mime_format};base64,{b64}"
+                else:
+                    from pantheon.utils.vision import get_image_base64
+                    data_uri = get_image_base64(str(resolved_path))
             except PermissionError:
                 return {"success": False, "error": "Permission denied reading image"}
             except IOError as e:
                 return {"success": False, "error": f"IO error reading image: {str(e)}"}
+            except Exception as e:
+                return {"success": False, "error": f"Failed to encode image: {str(e)}"}
 
-            # Map format to MIME type
-            mime_format = format.lstrip(".")
-            if mime_format == "jpg":
-                mime_format = "jpeg"
-
-            data_uri = f"data:image/{mime_format};base64,{b64}"
             return {
                 "success": True,
                 "image_path": image_path,
