@@ -33,8 +33,20 @@ heatmaps, cell-set selection, image layers.
 - Visualizing spatial transcriptomics (10x Visium, Xenium, MERFISH, …)
 - Single-cell data with embeddings (UMAP/t-SNE) the user should explore
 - Microscopy images, optionally with segmentation overlays
-- Any case where the user benefits from an *interactive* viewer rather than
-  a static figure
+- A ready-made domain viewer fits the data
+
+### Generate a custom LiveView app
+
+Write your own interactive component with the LiveView SDK when no existing
+viewer fits — a bespoke dashboard, custom plot, or tailored data view that
+the agent can still open, drive, and observe.
+
+**Skill file**: [live-view-app.md](./live-view-app.md)
+
+**When to use**:
+- The data / interaction doesn't match a ready-made viewer
+- You need a tailored view of analysis output
+- You want a custom interactive control surface for the user
 
 ## The `live_view` tools
 

@@ -32,7 +32,10 @@ from pantheon.toolset import ToolSet, tool
 from pantheon.utils.log import logger
 
 # Component types the UI knows how to render.
-KNOWN_VIEW_TYPES = {"vitessce"}
+#   vitessce : the Vitessce data-browser adapter
+#   custom   : an agent-generated component — state must carry `module_url`,
+#              the served URL of a JS module exporting setup(lv, root)
+KNOWN_VIEW_TYPES = {"vitessce", "custom"}
 
 # How long live_view_call waits for the component to return an action result.
 ACTION_TIMEOUT_SECONDS = 30
@@ -84,6 +87,7 @@ class LiveViewToolSet(ToolSet):
         # action_id -> Future, resolved by report_action_result.
         self._pending_actions: dict[str, asyncio.Future] = {}
         self._nats = None  # lazy NATSStreamAdapter
+        self._data_server = None  # lazy LiveViewDataServer
 
     # ── internals ─────────────────────────────────────────────────────────
 
@@ -127,14 +131,19 @@ class LiveViewToolSet(ToolSet):
         afterwards with the other live_view tools.
 
         Args:
-            view_type: Component type. Supported: "vitessce" (spatial /
-                single-cell / imaging data browser).
+            view_type: Component type:
+                - "vitessce": the Vitessce spatial / single-cell / imaging
+                  data browser.
+                - "custom": an agent-generated component. `state` MUST include
+                  `module_url` — the URL (from serve_local_data) of a JS
+                  module exporting `setup(lv, root)`.
             title: Short title shown on the sidebar tab.
             state: The component's initial state. For "vitessce" this is a
                 Vitessce *view config* JSON object (keys: version, name,
-                datasets, coordinationSpace, layout, initStrategy). Data file
-                URLs must be reachable by the browser (a public dataset, or
-                one served with CORS).
+                datasets, coordinationSpace, layout, initStrategy); data file
+                URLs must be browser-reachable (public, or served via
+                serve_local_data). For "custom" it is the component's own
+                initial state, plus the required `module_url`.
 
         Returns:
             dict with success, view_id (use it for the other tools), and the
@@ -144,6 +153,14 @@ class LiveViewToolSet(ToolSet):
             return {
                 "success": False,
                 "error": f"Unknown view_type '{view_type}'. Known: {sorted(KNOWN_VIEW_TYPES)}",
+            }
+        if view_type == "custom" and not (state or {}).get("module_url"):
+            return {
+                "success": False,
+                "error": (
+                    "view_type 'custom' requires state.module_url — serve "
+                    "your component module with serve_local_data first."
+                ),
             }
         chat_id = self._chat_id()
         if not chat_id:
@@ -291,6 +308,61 @@ class LiveViewToolSet(ToolSet):
         except KeyError as e:
             return {"success": False, "error": str(e)}
         return {"success": True, "state": session.snapshot()}
+
+    @tool
+    async def serve_local_data(self, path: str) -> dict:
+        """Expose a local workspace file or directory over HTTP (CORS).
+
+        LiveView components run in the browser and fetch their data — and, for
+        agent-generated components, their own code — over HTTP. Local
+        workspace paths are not browser-fetchable; this lazily starts a
+        localhost CORS static server and returns a URL for `path`.
+
+        Use this to make data servable before referencing it from a Vitessce
+        view config, or to serve an agent-written component module before
+        opening it with open_live_view(view_type="custom").
+
+        Args:
+            path: Absolute path, or path relative to the workspace, to a file
+                or directory to serve.
+
+        Returns:
+            dict with success, base_url, and url (the URL for `path`).
+        """
+        from pathlib import Path
+
+        p = Path(path)
+        if not p.is_absolute():
+            from pantheon.settings import get_settings
+            p = get_settings().work_dir / p
+        p = p.resolve()
+        if not p.exists():
+            return {"success": False, "error": f"Path does not exist: {p}"}
+
+        if self._data_server is None:
+            from .data_server import LiveViewDataServer
+            self._data_server = LiveViewDataServer()
+
+        # The first call fixes the served root (the dir of the path); later
+        # calls must reference something under it.
+        if self._data_server.root is None:
+            await self._data_server.ensure_started(p if p.is_dir() else p.parent)
+
+        url = self._data_server.url_for(p)
+        if url is None:
+            return {
+                "success": False,
+                "error": (
+                    f"Path is outside the data server root "
+                    f"'{self._data_server.root}'. Put data to serve under "
+                    f"that directory."
+                ),
+            }
+        return {
+            "success": True,
+            "base_url": self._data_server.base_url,
+            "url": url,
+        }
 
     @tool
     async def list_live_views(self) -> dict:
