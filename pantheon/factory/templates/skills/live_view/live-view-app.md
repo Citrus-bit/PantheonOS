@@ -46,6 +46,34 @@ export function setup(lv, root) {
 
 `setup` may be async. The host calls `lv.ready()` once it resolves.
 
+## Two component styles
+
+**Vanilla** (above) — a `.js` module exporting `setup(lv, root)`; you render
+into `root` yourself (innerHTML, DOM, SVG, canvas, any library).
+
+**React / JSX** — write a `.jsx` (or `.tsx`) module with a **default-exported
+React component**; the host transpiles it in-browser (Sucrase) and mounts it,
+passing the SDK instance as the `lv` prop:
+
+```jsx
+// my-app.jsx  — JSX works directly, no need to import React
+import { useState, useEffect } from 'react'
+
+export default function App({ lv }) {
+  const [state, setState] = useState(lv.state)
+  useEffect(() => lv.onState(setState), [])      // agent updates → re-render
+  if (!state) return <div>Loading…</div>
+  return (
+    <button onClick={() => lv.emitState({ ...state, n: (state.n || 0) + 1 })}>
+      clicked {state.n || 0}
+    </button>
+  )
+}
+```
+
+Use whichever fits. React/JSX suits richer UIs; vanilla suits small or
+library-driven views. Both get the same `lv` — same control loop.
+
 ## SDK API (live-view-sdk.js)
 
 | Call | Purpose |
