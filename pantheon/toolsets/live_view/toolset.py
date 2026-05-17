@@ -80,21 +80,18 @@ class LiveViewToolSet(ToolSet):
     def _chat_id(self) -> str | None:
         """Resolve the current chat id from the execution context.
 
-        In a chatroom the agent's tool context carries the chat id as
-        `client_id` (same key task_toolset uses for the per-chat brain dir).
-        The UI's proxy_toolset path injects it as `session_id`. Accept all.
+        The agent's tool context carries it as `chat_id` (injected by
+        room.chat); the UI's proxy_toolset path injects it as `session_id`.
+        NOT `client_id` — that is the UI connection id, stable across chats,
+        and publishing on it would target the wrong NATS subject.
         """
         ctx = self.get_context() or {}
-        return (
-            ctx.get("session_id")
-            or ctx.get("chat_id")
-            or ctx.get("client_id")
-        )
+        return ctx.get("session_id") or ctx.get("chat_id")
 
     async def _publish(self, chat_id: str, event: dict[str, Any]) -> None:
         """Broadcast a live_view.* event to the UI over the NATS chat stream."""
         if not chat_id:
-            logger.warning("live_view: no chat_id, cannot publish %s", event.get("type"))
+            logger.warning("live_view: no chat_id, cannot publish {}", event.get("type"))
             return
         if self._nats is None:
             from pantheon.chatroom.stream import NATSStreamAdapter
@@ -103,7 +100,7 @@ class LiveViewToolSet(ToolSet):
         try:
             await self._nats.publish(chat_id, event["type"], event)
         except Exception as e:  # streaming is best-effort
-            logger.error("live_view: publish failed: %s", e)
+            logger.error("live_view: publish failed: {}", e)
 
     def _require(self, view_id: str) -> LiveViewSession:
         session = self._views.get(view_id)
@@ -166,7 +163,7 @@ class LiveViewToolSet(ToolSet):
             "title": title,
             "config": session.config,
         })
-        logger.info("live_view: opened %s (%s) for chat %s", view_id, view_type, chat_id)
+        logger.info("live_view: opened {} ({}) for chat {}", view_id, view_type, chat_id)
         return {"success": True, "view_id": view_id, "state": session.snapshot()}
 
     @tool
