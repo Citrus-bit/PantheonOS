@@ -78,10 +78,18 @@ class LiveViewToolSet(ToolSet):
     # ── internals ─────────────────────────────────────────────────────────
 
     def _chat_id(self) -> str | None:
-        """Resolve the current chat id from the execution context."""
+        """Resolve the current chat id from the execution context.
+
+        In a chatroom the agent's tool context carries the chat id as
+        `client_id` (same key task_toolset uses for the per-chat brain dir).
+        The UI's proxy_toolset path injects it as `session_id`. Accept all.
+        """
         ctx = self.get_context() or {}
-        # proxy_toolset injects session_id; the agent loop also sets it.
-        return ctx.get("session_id") or ctx.get("chat_id")
+        return (
+            ctx.get("session_id")
+            or ctx.get("chat_id")
+            or ctx.get("client_id")
+        )
 
     async def _publish(self, chat_id: str, event: dict[str, Any]) -> None:
         """Broadcast a live_view.* event to the UI over the NATS chat stream."""
