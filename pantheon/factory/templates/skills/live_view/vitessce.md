@@ -31,11 +31,21 @@ data you actually converted.
 ## The workflow
 
 ```
-1. Get/build a valid Vitessce view config (see below)
+1. Just a public demo? open_live_view("vitessce", title)  ← no state, see below
+   Otherwise, get/build a valid Vitessce view config (see below)
 2. open_live_view("vitessce", title, state=config)   → view_id
-3. drive it:  live_view_update(view_id, patch)
-4. observe:   live_view_get_state(view_id)            (incl. the user's edits)
+3. verify:    live_view_get_state(view_id)            (status + diagnostics)
+4. drive it:  live_view_update(view_id, patch)
+5. observe:   live_view_get_state(view_id)            (incl. the user's edits)
 ```
+
+⚠️ **Verifying Vitessce — `live_view_screenshot` does NOT work for it.**
+Vitessce renders via WebGL / deck.gl, which an html2canvas screenshot
+**cannot capture** — the image comes back blank, that is expected and is
+*not* evidence the view is broken. To verify a Vitessce view, use
+`live_view_get_state`: `status` should be `ready` and `diagnostics` should
+be empty (errors there mean a bad config or unreachable data URL). Then ask
+the user to confirm what they see.
 
 For Vitessce the LiveView **state IS the Vitessce view config**. A
 `live_view_update` patch is **deep-merged** into the config — almost always
@@ -149,11 +159,19 @@ Vitessce needs the data as Zarr served over HTTP+CORS:
    public datasets work.)*
 3. Build the config with the `vitessce` package, `base_url` = the served URL.
 
-## Quick public-data demo
+## Quick public-data demo — built in, do not search
 
-To demo without the user's own data, retrieve a **published** Vitessce
-example config (e.g. from the Vitessce examples) and pass it to
-`open_live_view`. Do not assemble data URLs yourself.
+When the user just wants to *see a demo* ("打开一个公开空间转录组 demo"),
+there is a **bundled, verified** public config. Open it with **no `state`**:
+
+```
+open_live_view(view_type="vitessce", title="Spatial Transcriptomics Demo")
+```
+
+The viewer auto-loads its `vitessce.demo.json` (Human lymph node 10x Visium,
+public data). **Do NOT web-search for a config, build one, or delegate that
+to a sub-agent** — the demo is built in. Only build a config yourself when
+the user wants their *own* data (see above).
 
 ## Checklist before open_live_view
 

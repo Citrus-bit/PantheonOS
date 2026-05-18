@@ -15,9 +15,13 @@ Transport: state-change events publish on the existing NATS chat stream
 (``pantheon.stream.chat_<chat_id>``) with ``live_view.*`` event types. The
 component side speaks the matching bridge protocol via live-view-sdk.js.
 
-This toolset is generic; ``vitessce`` is simply the first registered
-``view_type``. The component's "state" is opaque here — for Vitessce it is
-the Vitessce view config; a patch deep-merges into it.
+This toolset is generic. Nothing is "built in" except the LiveView SDK
+runtime (live-view-sdk.js + app-host.html in the UI). Every viewer is a
+**plugin**: a JS module exporting ``setup(lv, root)`` that lives next to its
+skill file (e.g. ``skills/live_view/vitessce.js``). ``open_live_view``
+either loads an agent-supplied ``module_url`` or resolves a named viewer
+plugin to its served module. The component's "state" is opaque here — for
+Vitessce it is the Vitessce view config; a patch deep-merges into it.
 """
 
 from __future__ import annotations
@@ -31,14 +35,14 @@ from typing import Any
 from pantheon.toolset import ToolSet, tool
 from pantheon.utils.log import logger
 
-# Component types the UI knows how to render.
-#   vitessce : the Vitessce data-browser adapter
-#   custom   : an agent-generated component — state must carry `module_url`,
-#              the served URL of a JS module exporting setup(lv, root)
-KNOWN_VIEW_TYPES = {"vitessce", "custom"}
-
 # How long live_view_call waits for the component to return an action result.
 ACTION_TIMEOUT_SECONDS = 30
+
+# How long live_view_screenshot waits for the UI to render and return a frame.
+SNAPSHOT_TIMEOUT_SECONDS = 25
+
+# Cap on how many diagnostics (console errors / warnings) a session keeps.
+MAX_DIAGNOSTICS = 50
 
 
 def _deep_merge(target: Any, patch: Any) -> Any:
@@ -60,9 +64,12 @@ class LiveViewSession:
     view_type: str
     title: str
     chat_id: str
+    module_url: str = ""  # served URL of the component module to load
     state: dict[str, Any] = field(default_factory=dict)
     status: str = "opening"  # opening | ready | error | closed
     error: str | None = None
+    # Console errors / warnings captured from the component (most recent last).
+    diagnostics: list[dict[str, Any]] = field(default_factory=list)
     updated_at: float = field(default_factory=time.time)
 
     def snapshot(self) -> dict[str, Any]:
@@ -71,9 +78,11 @@ class LiveViewSession:
             "view_id": self.view_id,
             "view_type": self.view_type,
             "title": self.title,
+            "module_url": self.module_url,
             "status": self.status,
             "state": self.state,
             "error": self.error,
+            "diagnostics": self.diagnostics,
             "updated_at": self.updated_at,
         }
 
@@ -86,6 +95,8 @@ class LiveViewToolSet(ToolSet):
         self._views: dict[str, LiveViewSession] = {}
         # action_id -> Future, resolved by report_action_result.
         self._pending_actions: dict[str, asyncio.Future] = {}
+        # request_id -> Future, resolved by report_snapshot.
+        self._pending_snapshots: dict[str, asyncio.Future] = {}
         self._nats = None  # lazy NATSStreamAdapter
         self._data_server = None  # lazy LiveViewDataServer
 
@@ -121,50 +132,152 @@ class LiveViewToolSet(ToolSet):
             raise KeyError(f"No LiveView with id '{view_id}'")
         return session
 
+    def _data_roots(self) -> list:
+        """Directories the data server should expose: the workspace (agent
+        data + agent-written components) and the skills dirs (viewer plugins)."""
+        from pantheon.settings import get_settings
+
+        s = get_settings()
+        roots = [s.work_dir]
+        try:
+            roots.append(s.workspace)
+        except Exception:  # noqa: BLE001
+            pass
+        roots.append(s.skills_dir)
+        roots.append(s.global_skills_dir)
+        return roots
+
+    async def _ensure_data_server(self):
+        """Lazily start the CORS data server over all relevant roots."""
+        if self._data_server is None:
+            from .data_server import LiveViewDataServer
+
+            self._data_server = LiveViewDataServer()
+        await self._data_server.ensure_started(self._data_roots())
+        return self._data_server
+
+    async def _resolve_viewer(
+        self, name: str,
+    ) -> tuple[str | None, dict | None, str | None]:
+        """Resolve a viewer-plugin name to a served module URL (+ demo).
+
+        A viewer plugin is ``skills/live_view/<name>.js`` — a setup(lv, root)
+        module. It may ship a ``<name>.demo.json`` next to it: a ready,
+        verified config used when open_live_view is called with no state.
+
+        Returns ``(url, demo_or_None, None)`` on success, or
+        ``(None, None, error)`` if no such plugin exists.
+        """
+        import json as _json
+        from pantheon.settings import get_settings
+
+        s = get_settings()
+        candidates = [
+            s.skills_dir / "live_view" / f"{name}.js",
+            s.global_skills_dir / "live_view" / f"{name}.js",
+        ]
+        adapter = next((p for p in candidates if p.exists()), None)
+        if adapter is None:
+            return None, None, (
+                f"Unknown viewer '{name}': no plugin at "
+                f"skills/live_view/{name}.js. For a bespoke component, open a "
+                f"view with view_type='custom' and your own module_url."
+            )
+        server = await self._ensure_data_server()
+        url = server.url_for(adapter.resolve())
+        if url is None:
+            return None, None, f"viewer plugin '{name}' is outside the served roots"
+
+        demo: dict | None = None
+        demo_file = adapter.parent / f"{name}.demo.json"
+        if demo_file.exists():
+            try:
+                demo = _json.loads(demo_file.read_text())
+            except Exception as e:  # noqa: BLE001
+                logger.warning("live_view: bad demo config {}: {}", demo_file, e)
+        return url, demo, None
+
     # ── agent-facing tools ────────────────────────────────────────────────
 
     @tool
-    async def open_live_view(self, view_type: str, title: str, state: dict) -> dict:
+    async def open_live_view(
+        self,
+        view_type: str,
+        title: str,
+        state: dict | None = None,
+        module_url: str = "",
+    ) -> dict:
         """Open an interactive visualization component in the Pantheon UI sidebar.
+
+        Every LiveView is a JS module exporting `setup(lv, root)`, loaded by
+        the generic host. There are two ways to pick that module:
+
+          * a **viewer plugin** — pass `view_type` as the plugin name (e.g.
+            "vitessce"); it is resolved to `skills/live_view/<name>.js`.
+          * an **agent-generated component** — pass `view_type="custom"` and
+            `module_url`, the served URL (from serve_local_data) of the JS
+            module you wrote.
+
+        QUICK DEMO: to open a viewer's built-in demo, call it with NO `state`
+        — e.g. open_live_view("vitessce", "Demo"). If the viewer ships a demo
+        config it loads automatically; do NOT search for or build one.
 
         The component renders in the right sidebar; drive and observe it
         afterwards with the other live_view tools.
 
         Args:
-            view_type: Component type:
-                - "vitessce": the Vitessce spatial / single-cell / imaging
-                  data browser.
-                - "custom": an agent-generated component. `state` MUST include
-                  `module_url` — the URL (from serve_local_data) of a JS
-                  module exporting `setup(lv, root)`.
+            view_type: A viewer-plugin name (e.g. "vitessce"), or "custom"
+                for an agent-generated component (then `module_url` required).
             title: Short title shown on the sidebar tab.
             state: The component's initial state. For "vitessce" this is a
                 Vitessce *view config* JSON object (keys: version, name,
                 datasets, coordinationSpace, layout, initStrategy); data file
                 URLs must be browser-reachable (public, or served via
                 serve_local_data). For "custom" it is the component's own
-                initial state, plus the required `module_url`.
+                initial state. Omit it to load the viewer's bundled demo.
+            module_url: For view_type="custom", the served URL of the
+                component module. Ignored for viewer plugins.
 
         Returns:
             dict with success, view_id (use it for the other tools), and the
             initial state snapshot.
         """
-        if view_type not in KNOWN_VIEW_TYPES:
-            return {
-                "success": False,
-                "error": f"Unknown view_type '{view_type}'. Known: {sorted(KNOWN_VIEW_TYPES)}",
-            }
-        if view_type == "custom" and not (state or {}).get("module_url"):
-            return {
-                "success": False,
-                "error": (
-                    "view_type 'custom' requires state.module_url — serve "
-                    "your component module with serve_local_data first."
-                ),
-            }
         chat_id = self._chat_id()
         if not chat_id:
             return {"success": False, "error": "No active chat context"}
+
+        # module_url is a view field, not component state — keep state clean.
+        state = state or {}
+        resolved_url = module_url or state.get("module_url") or ""
+        component_state = {k: v for k, v in state.items() if k != "module_url"}
+
+        if not resolved_url:
+            if view_type == "custom":
+                return {
+                    "success": False,
+                    "error": (
+                        "view_type 'custom' requires module_url — serve your "
+                        "component module with serve_local_data and pass its "
+                        "URL as module_url."
+                    ),
+                }
+            resolved_url, demo_state, err = await self._resolve_viewer(view_type)
+            if err:
+                return {"success": False, "error": err}
+            # No state given — fall back to the viewer's bundled demo config.
+            if not component_state:
+                if demo_state is not None:
+                    component_state = demo_state
+                    logger.info("live_view: using bundled demo for '{}'", view_type)
+                else:
+                    return {
+                        "success": False,
+                        "error": (
+                            f"view_type '{view_type}' needs a config in "
+                            f"`state`, and ships no bundled demo. Build a "
+                            f"config (see the {view_type} skill) and pass it."
+                        ),
+                    }
 
         view_id = f"lv-{uuid.uuid4().hex[:12]}"
         session = LiveViewSession(
@@ -172,7 +285,8 @@ class LiveViewToolSet(ToolSet):
             view_type=view_type,
             title=title,
             chat_id=chat_id,
-            state=state or {},
+            module_url=resolved_url,
+            state=component_state,
         )
         self._views[view_id] = session
 
@@ -181,6 +295,7 @@ class LiveViewToolSet(ToolSet):
             "view_id": view_id,
             "view_type": view_type,
             "title": title,
+            "module_url": resolved_url,
             "state": session.state,
         })
         logger.info("live_view: opened {} ({}) for chat {}", view_id, view_type, chat_id)
@@ -294,11 +409,22 @@ class LiveViewToolSet(ToolSet):
 
     @tool
     async def live_view_get_state(self, view_id: str) -> dict:
-        """Read an open LiveView's current state.
+        """Read an open LiveView's current state, status, and diagnostics.
 
-        Returns the latest state — including changes the *user* made by
-        interacting with the component directly. Call this before deciding
-        how to drive the view further.
+        The returned snapshot has:
+          - `status`: "ready" means the component module loaded without
+            throwing — it does NOT guarantee it rendered correctly.
+          - `diagnostics`: console errors / warnings captured from the
+            component (uncaught errors, Vue/React warnings, etc.). A
+            non-empty list means something is wrong even if status is
+            "ready" — inspect it.
+          - `state`: the latest component state, including changes the
+            *user* made by interacting with the component directly.
+
+        Do NOT treat reading back a value you just set with
+        live_view_update as "verification" — that only echoes your own
+        write. To truly verify, check `diagnostics` and use
+        live_view_screenshot.
 
         Args:
             view_id: id returned by open_live_view.
@@ -308,6 +434,79 @@ class LiveViewToolSet(ToolSet):
         except KeyError as e:
             return {"success": False, "error": str(e)}
         return {"success": True, "state": session.snapshot()}
+
+    @tool
+    async def live_view_screenshot(self, view_id: str) -> dict:
+        """Capture what an open LiveView currently looks like, as an image.
+
+        Renders the component to an image file and returns its path; view it
+        with observe_images to actually SEE whether the component rendered.
+        Use this to verify a view after opening or driving it — `status:
+        ready` alone does not mean it looks right.
+
+        IMPORTANT — the snapshot is an html2canvas DOM render. It captures
+        HTML and SVG faithfully, but does NOT capture WebGL or <canvas>
+        pixel content: Vitessce, deck.gl, and canvas-based plots appear
+        BLANK or incomplete in the image. For those, rely on
+        live_view_get_state (status + diagnostics) and the user — not this
+        screenshot.
+
+        Args:
+            view_id: id returned by open_live_view.
+
+        Returns:
+            dict with success, path (the saved image — pass it to
+            observe_images), and note (the WebGL caveat).
+        """
+        try:
+            session = self._require(view_id)
+        except KeyError as e:
+            return {"success": False, "error": str(e)}
+
+        request_id = uuid.uuid4().hex
+        loop = asyncio.get_event_loop()
+        future: asyncio.Future = loop.create_future()
+        self._pending_snapshots[request_id] = future
+        await self._publish(session.chat_id, {
+            "type": "live_view.snapshot",
+            "view_id": view_id,
+            "request_id": request_id,
+        })
+        try:
+            data_url = await asyncio.wait_for(
+                future, timeout=SNAPSHOT_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            return {"success": False, "error": "screenshot timed out"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+        finally:
+            self._pending_snapshots.pop(request_id, None)
+
+        try:
+            import base64
+            from pathlib import Path
+            from pantheon.settings import get_settings
+
+            header, _, b64 = str(data_url).partition(",")
+            ext = "jpg" if "jpeg" in header else "png"
+            snap_dir = get_settings().pantheon_dir / "live_view_snapshots"
+            snap_dir.mkdir(parents=True, exist_ok=True)
+            path = snap_dir / f"{view_id}-{int(time.time())}.{ext}"
+            Path(path).write_bytes(base64.b64decode(b64))
+        except Exception as e:  # noqa: BLE001
+            return {"success": False, "error": f"failed to save snapshot: {e}"}
+
+        return {
+            "success": True,
+            "path": str(path),
+            "note": (
+                "html2canvas DOM render. WebGL/<canvas> content (Vitessce, "
+                "deck.gl, canvas plots) is NOT captured and shows blank — "
+                "for those trust live_view_get_state + diagnostics, not this "
+                "image. View the file with observe_images."
+            ),
+        }
 
     @tool
     async def serve_local_data(self, path: str) -> dict:
@@ -339,30 +538,18 @@ class LiveViewToolSet(ToolSet):
         if not p.exists():
             return {"success": False, "error": f"Path does not exist: {p}"}
 
-        if self._data_server is None:
-            from .data_server import LiveViewDataServer
-            self._data_server = LiveViewDataServer()
-
-        # The first call fixes the served root (the dir of the path); later
-        # calls must reference something under it.
-        if self._data_server.root is None:
-            await self._data_server.ensure_started(p if p.is_dir() else p.parent)
-
-        url = self._data_server.url_for(p)
+        server = await self._ensure_data_server()
+        url = server.url_for(p)
         if url is None:
+            roots = ", ".join(str(r) for r in server.roots)
             return {
                 "success": False,
                 "error": (
-                    f"Path is outside the data server root "
-                    f"'{self._data_server.root}'. Put data to serve under "
-                    f"that directory."
+                    f"Path {p} is outside the LiveView data server roots "
+                    f"({roots}). Put files to serve under the workspace."
                 ),
             }
-        return {
-            "success": True,
-            "base_url": self._data_server.base_url,
-            "url": url,
-        }
+        return {"success": True, "base_url": server.base_url, "url": url}
 
     @tool
     async def list_live_views(self) -> dict:
@@ -432,6 +619,42 @@ class LiveViewToolSet(ToolSet):
                 future.set_result(value)
             else:
                 future.set_exception(RuntimeError(error or "action failed"))
+        return {"success": True}
+
+    @tool(exclude=True)
+    async def report_diagnostic(
+        self, view_id: str, level: str, message: str,
+    ) -> dict:
+        """UI → backend: record a console error / warning the host captured
+        from the component, so the agent sees it via live_view_get_state."""
+        session = self._views.get(view_id)
+        if session is None:
+            return {"success": False, "error": f"No LiveView with id '{view_id}'"}
+        session.diagnostics.append({
+            "level": level,
+            "message": message,
+            "ts": time.time(),
+        })
+        if len(session.diagnostics) > MAX_DIAGNOSTICS:
+            session.diagnostics = session.diagnostics[-MAX_DIAGNOSTICS:]
+        return {"success": True}
+
+    @tool(exclude=True)
+    async def report_snapshot(
+        self,
+        request_id: str,
+        ok: bool,
+        data_url: str | None = None,
+        error: str | None = None,
+    ) -> dict:
+        """UI → backend: deliver a captured snapshot, resolving the pending
+        live_view_screenshot."""
+        future = self._pending_snapshots.get(request_id)
+        if future is not None and not future.done():
+            if ok and data_url:
+                future.set_result(data_url)
+            else:
+                future.set_exception(RuntimeError(error or "snapshot failed"))
         return {"success": True}
 
     @tool(exclude=True)

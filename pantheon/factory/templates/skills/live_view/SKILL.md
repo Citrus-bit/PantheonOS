@@ -19,6 +19,13 @@ the result back.
 
 Load the relevant skill file before building a visualization.
 
+**Architecture** — only the LiveView SDK runtime is built in. Every viewer
+is a **plugin**: a JS module exporting `setup(lv, root)` that lives next to
+its skill file (e.g. `skills/live_view/vitessce.js`). `open_live_view`
+either resolves a named viewer plugin (`view_type="vitessce"`) or loads an
+agent-generated component (`view_type="custom"` + `module_url`). Adding a
+viewer = dropping a `.md` + `.js` pair here; no app code changes.
+
 ## Available skills
 
 ### Vitessce — spatial / single-cell / imaging data
@@ -52,13 +59,17 @@ the agent can still open, drive, and observe.
 
 | Tool | Purpose |
 |------|---------|
-| `open_live_view(view_type, title, state)` | Open a component; returns `view_id` |
+| `open_live_view(view_type, title, state, module_url?)` | Open a viewer plugin (e.g. `view_type="vitessce"`) or a custom component (`view_type="custom"` + `module_url`); returns `view_id` |
+| `serve_local_data(path)` | Expose a workspace file/dir over HTTP+CORS; returns a fetchable URL |
 | `live_view_update(view_id, patch)` | Deep-merge a partial-state patch (drive it) |
 | `live_view_set_state(view_id, state)` | Replace the whole state |
-| `live_view_get_state(view_id)` | Read current state — incl. the user's own edits |
+| `live_view_get_state(view_id)` | Read state, `status`, and `diagnostics` — incl. the user's own edits |
 | `live_view_call(view_id, action, args)` | Invoke a component-defined action |
+| `live_view_screenshot(view_id)` | Render the view to an image — `observe_images` it to see it |
 | `list_live_views()` / `close_live_view(view_id)` | List / close |
 
-Workflow: `open_live_view` → drive with `live_view_update` → before deciding
-the next move, `live_view_get_state` to see where the view (and the user)
-currently is.
+Workflow: `open_live_view` → **verify** (`live_view_get_state` for
+`diagnostics`, `live_view_screenshot` to see it — `status: ready` does NOT
+mean it rendered correctly) → drive with `live_view_update` →
+`live_view_get_state` before the next move. Never treat reading back your
+own `live_view_update` value as verification.
