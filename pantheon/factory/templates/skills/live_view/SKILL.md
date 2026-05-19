@@ -4,9 +4,9 @@ name: LiveView Skills Index
 description: |
   Skills for opening and driving agent-controllable visualization
   components in the Pantheon UI sidebar — interactive viewers the agent
-  can open, control, and read back. Currently: Vitessce (spatial / single-
-  cell / imaging data).
-tags: [live-view, visualization, vitessce, spatial, single-cell, interactive]
+  can open, control, and read back. Viewers: Vitessce (spatial / single-
+  cell omics), Viv (bioimage / microscopy), plus agent-generated apps.
+tags: [live-view, visualization, vitessce, viv, bioimage, spatial, single-cell, interactive]
 ---
 
 # LiveView — Agent-Controllable UI Components
@@ -39,8 +39,25 @@ heatmaps, cell-set selection, image layers.
 **When to use**:
 - Visualizing spatial transcriptomics (10x Visium, Xenium, MERFISH, …)
 - Single-cell data with embeddings (UMAP/t-SNE) the user should explore
-- Microscopy images, optionally with segmentation overlays
-- A ready-made domain viewer fits the data
+- Cell segmentations as **interactive** objects — click/hover a cell,
+  colour by type or gene. (Just *viewing* boundaries on an image → use Viv;
+  Vitessce does not render clean boundaries.)
+- Spatial omics where cells/sets/embeddings matter, not just the image
+
+### Viv — bioimage / microscopy viewer
+
+Open a Viv viewer for high-resolution, multiplexed bioimaging — OME-TIFF
+and OME-Zarr (OME-NGFF): multichannel fluorescence, microscopy, IF/IMC/
+CODEX, whole-slide images. Channel colors, contrast, pan/zoom, overview.
+
+**Skill file**: [viv.md](./viv.md)
+
+**When to use**:
+- The data *is an image* — OME-TIFF / OME-Zarr microscopy
+- Multichannel fluorescence the user wants to recolour / adjust
+- Cloud-hosted or local bioimages (served via `serve_local_data`)
+- **Overlaying a cell segmentation / showing cell boundaries** on an image
+  (boundaries as an extra channel — the preferred way to *view* a mask)
 
 ### Generate a custom LiveView app
 

@@ -39,13 +39,17 @@ data you actually converted.
 5. observe:   live_view_get_state(view_id)            (incl. the user's edits)
 ```
 
-⚠️ **Verifying Vitessce — `live_view_screenshot` does NOT work for it.**
-Vitessce renders via WebGL / deck.gl, which an html2canvas screenshot
-**cannot capture** — the image comes back blank, that is expected and is
-*not* evidence the view is broken. To verify a Vitessce view, use
-`live_view_get_state`: `status` should be `ready` and `diagnostics` should
-be empty (errors there mean a bad config or unreachable data URL). Then ask
-the user to confirm what they see.
+⚠️ **Verifying Vitessce.** `live_view_screenshot` does NOT work for it —
+Vitessce renders via WebGL / deck.gl, which an html2canvas screenshot cannot
+capture; a blank image is expected, not evidence of breakage. Verify with
+`live_view_get_state`: `status` must be `ready` and `diagnostics` empty.
+
+**`status: error` means Vitessce rejected the config** (a bad coordination
+key, an unreachable data URL). Vitessce also loads **asynchronously** — an
+invalid config surfaces a few seconds after `open_live_view`, not instantly.
+So do the verifying `live_view_get_state` as a **late step**, right before
+you report to the user — never trust a check made immediately after open.
+If `status` is `error`, fix the config and reopen; do not report success.
 
 For Vitessce the LiveView **state IS the Vitessce view config**. A
 `live_view_update` patch is **deep-merged** into the config — almost always
@@ -144,8 +148,17 @@ Useful coordination types: `spatialZoom`, `spatialTargetX`, `spatialTargetY`,
 `obsColorEncoding` (`"cellSetSelection"` | `"geneSelection"`),
 `featureSelection` (list of gene names), `obsSetSelection`, `obsHighlight`.
 
+⚠️ **`coordinationSpace` is strictly validated — do NOT invent key names.**
+Vitessce rejects the **entire config** if `coordinationSpace` contains one
+unrecognized coordination type (you get "Config validation failed"). Only
+use a coordination type you have actually seen in a Vitessce config or in
+this list. If unsure a name exists, do not add it — leave `initStrategy:
+"auto"` to fill defaults, or change behaviour through the layer-controller
+UI instead.
+
 Always `live_view_get_state(view_id)` before the next move — it reflects
-changes the **user** made by interacting with the view directly.
+changes the **user** made by interacting with the view directly, and its
+`status`/`diagnostics` reveal a rejected config.
 
 ## Visualizing the user's own data
 
@@ -158,6 +171,129 @@ Vitessce needs the data as Zarr served over HTTP+CORS:
    turns a workspace path into a fetchable URL. Until then, only remote /
    public datasets work.)*
 3. Build the config with the `vitessce` package, `base_url` = the served URL.
+
+## Advanced: images, segmentations, and multi-modal views
+
+Vitessce is built on Viv, so it **renders images** too — and it adds a
+per-cell data model on top, so it shows **cell segmentations as interactive
+objects** (hover → cell id, click → select, colour by cell type or gene),
+not as flat pixels.
+
+> ⚠️ **Just want to SEE the cell boundaries on an image? Use Viv, not
+> Vitessce.** Vitessce's `obsSegmentations` makes cells interactive
+> (hover → cell id, colour by data) but it does **not** render clean visible
+> boundaries — a segmentation-only overlay shows up as a flat blob. For a
+> visual boundary overlay, the `viv` skill (boundaries as an extra channel)
+> is simpler and far crisper. Reach for Vitessce `obsSegmentations` **only**
+> when per-cell interactivity (click/select cells, colour by cell type or
+> gene, link to a UMAP/heatmap) is genuinely needed.
+
+A Cellpose / StarDist mask (`masks.tif`, integer labels, one per cell) is
+exactly a segmentation bitmask: convert it to OME-TIFF, then wrap it with
+`ObsSegmentationsOmeTiffWrapper`.
+
+### Recipe — image + segmentation + per-cell data
+
+Modern image/segmentation configs use the **`spatialBeta`** and
+**`layerControllerBeta`** views (not the older `spatial` / `layerController`).
+Build with the `vitessce` package:
+
+```python
+from vitessce import (VitessceConfig, ImageOmeTiffWrapper,
+    ObsSegmentationsOmeTiffWrapper, AnnDataWrapper)
+
+vc = VitessceConfig(schema_version="1.0.17", name="Tissue + cells")
+ds = (vc.add_dataset("tissue")
+  # the microscopy image (multichannel OME-TIFF / OME-Zarr)
+  .add_object(ImageOmeTiffWrapper(img_url="https://host/image.ome.tif"))
+  # the segmentation: a LABEL image — each integer is one cell
+  .add_object(ObsSegmentationsOmeTiffWrapper(
+      img_url="https://host/masks.ome.tif",
+      coordination_values={"obsType": "cell"}))
+  # per-cell data, linked to the segmentation by the shared obsType
+  .add_object(AnnDataWrapper(
+      adata_url="https://host/cells.h5ad.zarr",
+      obs_set_paths=["obs/cell_type"], obs_set_names=["Cell Type"],
+      obs_feature_matrix_path="X",
+      coordination_values={"obsType": "cell"})))
+
+spatial = vc.add_view("spatialBeta", dataset=ds)          # image + segmentation
+lc      = vc.add_view("layerControllerBeta", dataset=ds)  # channel / layer UI
+sets    = vc.add_view("obsSets", dataset=ds)              # cell-type tree
+genes   = vc.add_view("featureList", dataset=ds)          # gene picker
+vc.layout((spatial | lc) / (sets | genes))
+config = vc.to_dict(base_url="https://host")
+```
+
+The shared `coordination_values={"obsType": "cell"}` is what links the
+segmentation to the AnnData — without it the cells have no data to colour
+by. An image with no segmentation/cells is just the first `.add_object`.
+
+### Colouring segmented cells
+
+Once linked, drive colouring with the same `coordinationSpace` patches:
+
+```python
+# colour cells by cell type
+live_view_update(view_id, {"coordinationSpace": {
+    "obsColorEncoding": {"A": "cellSetSelection"}}})
+# colour cells by a gene's expression
+live_view_update(view_id, {"coordinationSpace": {
+    "obsColorEncoding": {"A": "geneSelection"},
+    "featureSelection": {"A": ["EPCAM"]}}})
+```
+
+### Making segmentation cells distinguishable
+
+A bitmask segmentation with **no per-cell data** renders as one solid,
+filled colour — every cell the same — so you cannot see individual cells or
+their boundaries. This is the "all one colour / no boundaries" symptom.
+
+**Fix: give every cell a per-cell value and colour by it** — neighbouring
+cells then get different colours, so every boundary shows. A bare Cellpose /
+StarDist mask carries no data, so compute one. Cell **area** is the easy,
+reliable choice:
+
+```python
+import numpy as np, anndata as ad, pandas as pd
+from skimage.measure import regionprops_table
+
+mask = np.load("masks.npy")          # integer label image, one label per cell
+props = regionprops_table(mask, properties=["label", "area"])
+labels = props["label"].astype(str)
+adata = ad.AnnData(
+    X=np.zeros((len(labels), 1), dtype="float32"),
+    obs=pd.DataFrame({
+        # binned area → a categorical → each group a distinct colour.
+        # (Use `labels` modulo ~12 instead for purely random, maximum
+        #  boundary contrast when an informative colouring is not needed.)
+        "area_bin": pd.qcut(props["area"], 8, labels=False, duplicates="drop")
+                      .astype(str),
+    }, index=labels),       # obs index MUST equal the bitmask label values
+)
+adata.write_zarr("cells.h5ad.zarr")
+```
+
+The `obs` index must equal the bitmask label values so Vitessce links each
+row to its cell. Add `AnnDataWrapper(adata_url=…,
+obs_set_paths=["obs/area_bin"], obs_set_names=["Area"])` to the same
+dataset, linked by `coordination_values={"obsType": "cell"}`, and set
+`coordinationSpace.obsColorEncoding` to `"cellSetSelection"`. Each cell
+group gets its own colour — boundaries pop.
+
+**Outline mode is unreliable to hand-set.** `spatialSegmentationFilled` is a
+real coordination type, but in a `spatialBeta` config it only takes effect
+when wired to the segmentation layer through the beta `coordinationScopesBy`
+machinery — a flat `coordinationSpace` entry is silently ignored and the
+view stays filled. Do not rely on it from an agent-built config; colour-by-
+data above is the dependable way. (The user can still toggle fill in the
+`layerControllerBeta` panel interactively.)
+
+### Image-only: Vitessce or the Viv plugin?
+
+For a *pure image* with channel controls and nothing else, the `viv` viewer
+is lighter. Reach for Vitessce when the image comes **with** cells,
+segmentation, embeddings, or expression you want coordinated in one view.
 
 ## Quick public-data demo — built in, do not search
 

@@ -26,6 +26,19 @@ export function setup(lv, root) {
   // our own write — suppress it so it isn't echoed back as a user edit.
   let applyingRemote = false
 
+  let errorCheckTimer = null
+
+  // Vitessce reports an invalid config NOT by throwing or logging — it just
+  // renders a <Warning> ("Config validation failed on second pass." etc.).
+  // Nothing else would notice, so status would wrongly stay "ready". Detect
+  // that rendered warning and surface it as a hard failure to the agent.
+  function checkForVitessceError() {
+    const text = (root.textContent || '').trim()
+    if (/Config (validation|initialization) failed/i.test(text)) {
+      lv.fail('Vitessce rejected the config — ' + text.slice(0, 600))
+    }
+  }
+
   function renderVitessce(config) {
     if (!config) return
     if (!reactRoot) reactRoot = createRoot(root)
@@ -42,6 +55,9 @@ export function setup(lv, root) {
         },
       }),
     )
+    // Config validation runs synchronously on render; check shortly after.
+    if (errorCheckTimer) clearTimeout(errorCheckTimer)
+    errorCheckTimer = setTimeout(checkForVitessceError, 2500)
   }
 
   // The LiveView "state" is the Vitessce view config. init/patch/set arrive
