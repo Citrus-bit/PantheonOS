@@ -2181,6 +2181,13 @@ class ChatRoom(ToolSet):
         # Pre-snapshot: only scan the designated image output directory
         pre_image_snapshot = snapshot_images(image_output_path) if image_output_path else {}
 
+        # Expose the chat id to tools. `client_id` in the tool context is the
+        # UI connection id (stable across chats), not the chat id — toolsets
+        # that need the chat id (e.g. live_view, to publish on the chat's
+        # NATS stream) must read `chat_id` instead.
+        context_variables = context_variables or {}
+        context_variables["chat_id"] = chat_id
+
         thread = Thread(
             team_getter,  # Pass team getter
             memory,
