@@ -105,6 +105,61 @@ views, custom encodings. Driven by a declarative JSON **spec**.
 - Use IGV instead if the task is to *look at a BAM / VCF / BED file at a
   locus*; the two viewers do not overlap.
 
+### Cytoscape — biological networks & pathways
+
+Open a Cytoscape.js view for interactive networks — protein-protein
+interactions, signalling / metabolic / regulatory pathways, ontology
+graphs. Nodes + edges as JSON, built-in layouts (cose, breadthfirst,
+circle, dagre, ...), CSS-like stylesheet by selectors.
+
+**Skill file**: [cytoscape/cytoscape.md](./cytoscape/cytoscape.md)
+
+**When to use**:
+- PPI networks (STRING, BioGRID, IntAct)
+- Signalling / metabolic / regulatory pathways
+- Gene-regulatory networks (TF → target)
+- Any graph the user benefits from *interactively* (drag, hover, zoom)
+
+### MSA — multiple sequence alignment viewer
+
+Open a multiple-sequence-alignment view (EBI Nightingale's
+`<nightingale-msa>`) for protein or DNA alignments. Standard colour
+schemes (clustal, taylor, hydro, zappo, ...), configurable tile sizes.
+
+**Skill file**: [msa/msa.md](./msa/msa.md)
+
+**When to use**:
+- Display a pre-computed alignment from MAFFT / MUSCLE / Clustal / MMseqs2
+- Compare orthologs at a functional site / domain
+- Pair with `phylotree` for tree + alignment side-by-side
+
+### RDKit — 2D small-molecule depictions
+
+Render 2D depictions of small molecules from SMILES / MOL block using
+RDKit-JS (WebAssembly build). Complements `molstar` (3D macromolecules)
+— RDKit is the canonical 2D view for drugs, metabolites, organics.
+
+**Skill file**: [rdkit/rdkit.md](./rdkit/rdkit.md)
+
+**When to use**:
+- A SMILES (or list) to view as a 2D structure
+- Pull drugs / metabolites from ChEMBL / PubChem / DrugBank → render
+- Display the substrate / product of a reaction
+- Highlight substructures or specific atoms on a molecule
+
+### Phylotree — phylogenetic trees
+
+Open a phylotree.js view for an interactive phylogenetic tree from a
+Newick string. Linear or radial layout, branch-length-scaled; rerooting,
+ladderise, clade collapse built in.
+
+**Skill file**: [phylotree/phylotree.md](./phylotree/phylotree.md)
+
+**When to use**:
+- Show a phylogeny from IQ-TREE / RAxML / FastTree / MrBayes / BEAST
+- Inspect / collapse / reroot a clade interactively
+- Pair with `msa` for tree + alignment side-by-side
+
 ### Generate a custom LiveView app
 
 Write your own interactive component with the LiveView SDK when no existing
