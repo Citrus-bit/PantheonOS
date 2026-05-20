@@ -71,6 +71,11 @@ class LiveViewSession:
     # Console errors / warnings captured from the component (most recent last).
     diagnostics: list[dict[str, Any]] = field(default_factory=list)
     updated_at: float = field(default_factory=time.time)
+    # User has collapsed this view's UI tab. The session stays alive and the
+    # agent can still drive it; only the visible tab is gone. Distinct from
+    # `status == "closed"` (permanent destroy, agent-initiated via
+    # close_live_view). The user reopens via the UI's hidden-views drawer.
+    ui_hidden: bool = False
 
     def snapshot(self) -> dict[str, Any]:
         """Structured state the agent reads to decide its next action."""
@@ -83,6 +88,7 @@ class LiveViewSession:
             "state": self.state,
             "error": self.error,
             "diagnostics": self.diagnostics,
+            "ui_hidden": self.ui_hidden,
             "updated_at": self.updated_at,
         }
 
@@ -660,8 +666,40 @@ class LiveViewToolSet(ToolSet):
         return {"success": True}
 
     @tool(exclude=True)
+    async def hide_view_for_ui(self, view_id: str) -> dict:
+        """UI → backend: collapse a view's tab without destroying it. The
+        session stays alive and the agent can still drive it; the user can
+        later restore the tab from the hidden-views drawer. Distinct from
+        the agent-only `close_live_view`, which is permanent."""
+        session = self._views.get(view_id)
+        if session is None:
+            return {"success": False, "error": f"No LiveView with id '{view_id}'"}
+        session.ui_hidden = True
+        session.updated_at = time.time()
+        await self._publish(session.chat_id, {
+            "type": "live_view.hide",
+            "view_id": view_id,
+        })
+        return {"success": True}
+
+    @tool(exclude=True)
+    async def unhide_view_for_ui(self, view_id: str) -> dict:
+        """UI → backend: restore a previously hidden view's tab."""
+        session = self._views.get(view_id)
+        if session is None:
+            return {"success": False, "error": f"No LiveView with id '{view_id}'"}
+        session.ui_hidden = False
+        session.updated_at = time.time()
+        await self._publish(session.chat_id, {
+            "type": "live_view.unhide",
+            "view_id": view_id,
+        })
+        return {"success": True}
+
+    @tool(exclude=True)
     async def list_views_for_ui(self, chat_id: str | None = None) -> dict:
-        """UI → backend: fetch open views (e.g. to restore them after reload)."""
+        """UI → backend: fetch open views (e.g. to restore them after reload).
+        Includes hidden views — the UI keeps them in its hidden-views drawer."""
         cid = chat_id or self._chat_id()
         views = [
             s.snapshot() for s in self._views.values()
