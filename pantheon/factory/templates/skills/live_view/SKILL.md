@@ -75,6 +75,36 @@ pLDDT.
 - Any `.pdb` / `.cif` structure file (see also the `structural_biology` skill
   for obtaining / predicting structures)
 
+### IGV — genome browser (tracks on a reference)
+
+Open an IGV.js genome browser to view BAM/CRAM alignments, VCF variants,
+BED/GFF annotations, bigWig coverage — on a reference genome (hg38, mm10,
+custom FASTA, …). Pan, zoom, jump to a gene or locus.
+
+**Skill file**: [igv/igv.md](./igv/igv.md)
+
+**When to use**:
+- "Look at this region in a genome browser" — RNA-seq pileups, ChIP/ATAC
+  peaks, variant calling, splice junctions, CRISPR-screen hits
+- Any BAM/CRAM/VCF/BED/GFF/bigWig on a reference genome
+- A gene symbol or coordinate range to display
+
+### Gosling — designed genomic figures (Vega-Lite-like grammar)
+
+Open a Gosling.js view for **designed** genomic visualisations — circular
+ideograms, multi-track / multi-sample layouts, comparative dual-genome
+views, custom encodings. Driven by a declarative JSON **spec**.
+
+**Skill file**: [gosling/gosling.md](./gosling/gosling.md)
+
+**When to use**:
+- Circular chromosome ideograms / circos-style plots
+- Designed multi-track or sample-faceted genomic figures
+- Comparative dual-genome / synteny visualisations
+- Anything that's hard to build with matplotlib but easy with a grammar
+- Use IGV instead if the task is to *look at a BAM / VCF / BED file at a
+  locus*; the two viewers do not overlap.
+
 ### Generate a custom LiveView app
 
 Write your own interactive component with the LiveView SDK when no existing
