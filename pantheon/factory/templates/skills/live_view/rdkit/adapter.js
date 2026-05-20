@@ -1,10 +1,15 @@
 /**
  * RDKit-JS LiveView adapter — 2D small-molecule depiction.
  *
- * Complements the molstar 3D viewer with the canonical 2D drawing of
- * SMILES / MOL block input. Built from RDKit's C++ via WebAssembly —
- * the first call to `initRDKitModule` downloads ~3 MB of WASM, then
- * subsequent renders are instant.
+ * Complements the molstar 3D viewer: 2D drawing of SMILES / MOL block via
+ * RDKit's C++ → WebAssembly build. The first call downloads ~3 MB of
+ * WASM; subsequent renders are instant.
+ *
+ * IMPORTANT: We load the OFFICIAL UMD bundle from unpkg, NOT the esm.sh
+ * ESM build. esm.sh polyfills `node:fs` with an `unenv` stub that throws
+ * on `fs.readFileSync`, which RDKit's Emscripten init hits when it tries
+ * to detect its environment (`__Process$.versions?.node` is truthy under
+ * the polyfill). The official UMD has no such Node-style branches.
  *
  * LiveView "state":
  *   {
@@ -20,11 +25,22 @@
  *       "highlightBonds": []
  *     }
  *   }
- *
- * Renders a grid of SVG depictions, one per molecule, with the name
- * underneath. Invalid SMILES are shown as red error cards in-line.
  */
-import initRDKitModule from 'https://esm.sh/@rdkit/rdkit@2025.3.4-1.0.0'
+const RDKIT_BUNDLE = 'https://unpkg.com/@rdkit/rdkit@2025.3.4-1.0.0/dist/RDKit_minimal.js'
+
+function loadRDKit() {
+  if (window.initRDKitModule) return Promise.resolve(window.initRDKitModule)
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script')
+    s.src = RDKIT_BUNDLE
+    s.onload = () => {
+      if (window.initRDKitModule) resolve(window.initRDKitModule)
+      else reject(new Error('RDKit script loaded but initRDKitModule global missing'))
+    }
+    s.onerror = () => reject(new Error('Failed to load RDKit script from ' + RDKIT_BUNDLE))
+    document.head.appendChild(s)
+  })
+}
 
 export async function setup(lv, root) {
   root.style.width = '100%'
@@ -40,7 +56,8 @@ export async function setup(lv, root) {
 
   let RDKit
   try {
-    RDKit = await initRDKitModule()
+    const init = await loadRDKit()
+    RDKit = await init()
   } catch (e) {
     lv.fail('RDKit: failed to load WASM — ' + ((e && e.message) || e))
     return
@@ -62,7 +79,7 @@ export async function setup(lv, root) {
     const W = opts.width  || 320
     const H = opts.height || 220
 
-    // RDKit's drawing options JSON — used by get_svg_with_highlights.
+    // RDKit's drawing-options JSON — see RDKit::MinimalLib::draw_to_string.
     const drawDetails = JSON.stringify({
       width: W, height: H,
       addAtomIndices: !!opts.addAtomIndices,
@@ -90,7 +107,6 @@ export async function setup(lv, root) {
           ? RDKit.get_mol(m.molblock)
           : RDKit.get_mol(String(m.smiles || ''))
         if (mol && mol.is_valid()) {
-          // get_svg_with_highlights handles size + highlights uniformly.
           html = mol.get_svg_with_highlights(drawDetails)
         } else {
           html = '<div style="color:#f85149;font-size:12px;padding:8px">'
@@ -100,7 +116,7 @@ export async function setup(lv, root) {
         html = '<div style="color:#f85149;font-size:12px;padding:8px">'
           + 'RDKit error: ' + ((e && e.message) || e) + '</div>'
       } finally {
-        // WASM-allocated objects must be deleted explicitly to free memory.
+        // WASM-allocated objects must be deleted to avoid leaks.
         if (mol) { try { mol.delete() } catch (_) {} }
       }
 
@@ -129,6 +145,4 @@ export async function setup(lv, root) {
     try { applyState(state) }
     catch (e) { lv.fail('RDKit: ' + ((e && e.message) || e)) }
   })
-
-  // Pure SVG output — html2canvas captures it cleanly.
 }

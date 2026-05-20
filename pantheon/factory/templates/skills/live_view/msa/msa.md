@@ -3,30 +3,33 @@ id: msa_live_view
 name: Multiple Sequence Alignment Viewer
 description: |
   Open and drive a multiple-sequence-alignment view in the Pantheon
-  sidebar. Built on EBI Nightingale's `<nightingale-msa>` Web Component —
-  protein and nucleotide alignments with the standard colour schemes
-  (clustal, taylor, hydro, zappo, ...) and configurable tile sizes.
-tags: [msa, multiple-sequence-alignment, protein-alignment, dna-alignment, nightingale, live-view]
+  sidebar — protein or DNA/RNA alignments rendered as a coloured grid.
+  Built as a small self-contained renderer (ClustalX colours for protein,
+  standard nucleotide colours for DNA / RNA) for reliability.
+tags: [msa, multiple-sequence-alignment, protein-alignment, dna-alignment, live-view]
 ---
 
 # Multiple Sequence Alignment Viewer
 
 Show a pre-computed alignment (FASTA `.aln`, ClustalW, MUSCLE, MAFFT
-output, etc.) as an interactive coloured matrix. Tip labels left,
-residues right; pan + zoom horizontally for long alignments.
+output, ...) as an interactive coloured grid. Tip labels left, residues
+right; scrolls horizontally for long alignments; a column-number ruler
+at the top.
+
+The renderer is a small custom HTML/CSS view rather than a heavy
+JS-MSA-viewer dependency — it just works without finicky setup, and
+agents can drive it with a simple state.
 
 ## When to use
 
 - A protein or DNA alignment from MAFFT / MUSCLE / Clustal / MMseqs2 —
   inspect conservation visually.
-- Compare a few orthologs at a key locus (Hb α across vertebrates,
-  variants of a viral protein, ...).
-- Side-by-side with phylogeny: `phylotree` for the tree, this for the
-  alignment.
+- Compare a few orthologs at a key site / domain.
+- Pair with `phylotree`: tree in one LiveView, alignment in another.
 
 For *building* the alignment, run MAFFT / MUSCLE on a FASTA via shell.
-For just one sequence's secondary-structure or features → use Nightingale's
-other tracks (not wrapped here yet).
+For very long alignments (> a few thousand columns), this view becomes
+slow — fall back to a static PNG via matplotlib + `Bio.Align`.
 
 ## Quick demo — built in
 
@@ -35,9 +38,9 @@ open_live_view(view_type="msa", title="Hb alpha across vertebrates")
 ```
 
 No `state` → opens the bundled `demo.json` (a vertebrate haemoglobin
-α-chain alignment, 5 species, ~140 columns, clustal coloring).
+α-chain alignment, 5 species).
 
-## The state — sequences + display options
+## The state
 
 ```jsonc
 {
@@ -49,19 +52,24 @@ No `state` → opens the bundled `demo.json` (a vertebrate haemoglobin
   ],
 
   // Optional display knobs (all have sensible defaults)
-  "color_scheme":  "clustal",   // clustal | taylor | hydro | zappo |
-                                //   helix | strand | turn | buried |
-                                //   cinema | lesk | nucleotide
-  "tile_width":    20,          // px per column
-  "tile_height":   20,          // px per row
-  "label_width":   80,          // px reserved for sequence names
-  "display_start": 1,           // 1-based first visible column
-  "display_end":   null,        // 1-based last visible column; defaults
-                                //   to alignment length
-  "width":         null,        // px; defaults to container width
-  "height":        null         // px; defaults to fit-all-rows
+  "color_scheme":   "clustal",   // clustal (proteins) | nucleotide
+                                 //   (DNA/RNA). Auto-detected from
+                                 //   the residues if omitted.
+  "tile_width":     18,          // px per column
+  "tile_height":    22,          // px per row
+  "label_width":    140,         // px reserved for sequence names
+  "show_ruler":     true         // column-number track on top
 }
 ```
+
+### Colour schemes
+
+- **clustal** — standard ClustalX colors for proteins: hydrophobic-blue,
+  positive-red, negative-magenta, polar-green, glycine-orange,
+  aromatic+H-cyan, proline-yellow. Gaps stay white.
+- **nucleotide** — A-blue, T/U-yellow, G-orange, C-red.
+- Auto-detection inspects the residues — if all characters are
+  `[ACGTUN-.]`, picks `nucleotide`; otherwise `clustal`.
 
 ## From data → state
 
@@ -73,8 +81,7 @@ def read_fasta(path):
     with open(path) as fp:
         for line in fp:
             line = line.rstrip()
-            if not line:
-                continue
+            if not line: continue
             if line.startswith(">"):
                 if name is not None:
                     seqs.append({"name": name, "sequence": "".join(buf)})
@@ -90,15 +97,14 @@ open_live_view(view_type="msa", title="My alignment",
                state={"sequences": seqs, "color_scheme": "clustal"})
 ```
 
-### From an existing MAFFT/MUSCLE output
-
-These tools write aligned FASTA — same as above. If output is in Clustal
-or PHYLIP format, convert via `biopython`:
+### From Bio.Align
 
 ```python
 from Bio import AlignIO
 aln = AlignIO.read("alignment.aln", "clustal")
 seqs = [{"name": rec.id, "sequence": str(rec.seq)} for rec in aln]
+open_live_view(view_type="msa", title="My alignment",
+               state={"sequences": seqs})
 ```
 
 ### Quick on-the-fly MAFFT
@@ -107,7 +113,9 @@ seqs = [{"name": rec.id, "sequence": str(rec.seq)} for rec in aln]
 import subprocess
 subprocess.run(["mafft", "--auto", "input.fasta"],
                stdout=open("aligned.fasta", "w"), check=True)
-# then read aligned.fasta as above
+seqs = read_fasta("aligned.fasta")
+open_live_view(view_type="msa", title="MAFFT result",
+               state={"sequences": seqs})
 ```
 
 ## Driving the view
@@ -115,27 +123,23 @@ subprocess.run(["mafft", "--auto", "input.fasta"],
 Replace whole `sequences` with `live_view_set_state`:
 
 ```python
-# zoom in on a 40-column window around the active site
+# add a sequence to the alignment
+get = live_view_get_state(view_id)
+new_seqs = [*get["state"]["sequences"],
+            {"name": "Hb_alpha_dog", "sequence": "VLSAADKAN..."}]
+live_view_set_state(view_id, {"sequences": new_seqs})
+
+# switch to a nucleotide alignment
 live_view_set_state(view_id, {
-    **current_state,
-    "display_start": 58,
-    "display_end":   97,
+    "sequences": [{"name":"v1","sequence":"ACGTACGT---"},
+                  {"name":"v2","sequence":"ACGT-CGTGGT"}],
+    "color_scheme": "nucleotide",
 })
 ```
-
-## Colour schemes — when to pick which
-
-- **clustal** — classic alignment colors by physico-chemical category
-  (default; good general-purpose for proteins)
-- **taylor** — different palette, similar grouping
-- **hydro** / **zappo** — by hydrophobicity (useful to spot membrane spans)
-- **helix** / **strand** / **turn** — by Chou-Fasman secondary-structure
-  propensity
-- **nucleotide** — A/C/G/T colors for DNA/RNA alignments
 
 ## Verify it
 
 `live_view_get_state` — `status: ready`, empty `diagnostics`. Common
-failure: sequences of unequal length (the adapter calls `lv.fail` with the
-offending name). `live_view_screenshot` uses html2canvas to capture the
-SVG/canvas Nightingale draws.
+failure: sequences of unequal length (the adapter reports the offending
+sequence by name via `lv.fail`). `live_view_screenshot` uses
+html2canvas — clean since the renderer is pure HTML/CSS.

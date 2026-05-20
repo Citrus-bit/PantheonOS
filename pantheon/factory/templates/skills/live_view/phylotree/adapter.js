@@ -18,12 +18,29 @@
  */
 import { phylotree } from 'https://esm.sh/phylotree@2.6.0'
 
+// Phylotree's render() draws an SVG, but the stroke/fill on .branch /
+// .node etc. comes from a separate stylesheet that ships with the
+// library. Without it the SVG renders but is invisible (no stroke on
+// branches, transparent node circles). Inject the upstream CSS once on
+// first setup.
+const PHYLOTREE_CSS = 'https://unpkg.com/phylotree@2.6.0/dist/phylotree.css'
+function ensurePhylotreeCss() {
+  if (document.querySelector('link[data-lv="phylotree-css"]')) return
+  const link = document.createElement('link')
+  link.rel = 'stylesheet'
+  link.href = PHYLOTREE_CSS
+  link.setAttribute('data-lv', 'phylotree-css')
+  document.head.appendChild(link)
+}
+
 export async function setup(lv, root) {
   root.style.width = '100%'
   root.style.height = '100%'
   root.style.overflow = 'auto'
   root.style.background = '#ffffff'
   root.style.color = '#222'
+
+  ensurePhylotreeCss()
 
   // phylotree's render uses d3.select(container); a stable selector is
   // safest. The id is scoped to this iframe document, so collisions with
@@ -76,7 +93,20 @@ export async function setup(lv, root) {
         'top-bottom-spacing': 'fit-to-size',
         zoom: true,
       }
-      tree.render(opts)
+      // v2.x quirk: tree.render() returns a renderer but does NOT
+      // auto-append the SVG. The library's own update_layout_and_view
+      // does: render -> update -> container.appendChild(show()). Mirror
+      // that here so the tree actually appears.
+      const renderer = tree.render(opts)
+      if (renderer && typeof renderer.update === 'function') {
+        renderer.update()
+      }
+      if (renderer && typeof renderer.show === 'function') {
+        const svgNode = renderer.show()
+        if (svgNode instanceof Element) {
+          root.appendChild(svgNode)
+        }
+      }
     } catch (e) {
       lv.fail('Phylotree: render failed — ' + ((e && e.message) || e))
     }

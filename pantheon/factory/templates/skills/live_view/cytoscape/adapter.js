@@ -62,12 +62,14 @@ export async function setup(lv, root) {
     // wholesale element changes; cleaner to destroy + recreate.
     if (cy) { try { cy.destroy() } catch (_) {} cy = null }
     root.innerHTML = ''
+    // Note: `wheelSensitivity` would be nice (slower wheel-zoom) but
+    // Cytoscape now console.warns on it as a deprecated/non-standard
+    // option, which feeds the LiveView diagnostics channel as noise.
     cy = cytoscape({
       container: root,
       elements: state.elements,
       layout: state.layout || { name: 'cose', animate: false },
       style: state.style || DEFAULT_STYLE,
-      wheelSensitivity: 0.2,
     })
   }
 
