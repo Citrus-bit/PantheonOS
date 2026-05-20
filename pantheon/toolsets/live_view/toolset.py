@@ -17,10 +17,10 @@ component side speaks the matching bridge protocol via live-view-sdk.js.
 
 This toolset is generic. Nothing is "built in" except the LiveView SDK
 runtime (live-view-sdk.js + app-host.html in the UI). Every viewer is a
-**plugin**: a JS module exporting ``setup(lv, root)`` that lives next to its
-skill file (e.g. ``skills/live_view/vitessce.js``). ``open_live_view``
-either loads an agent-supplied ``module_url`` or resolves a named viewer
-plugin to its served module. The component's "state" is opaque here — for
+**plugin**: a folder ``skills/live_view/<name>/`` with an ``adapter.js``
+module exporting ``setup(lv, root)`` (e.g. ``skills/live_view/vitessce/``).
+``open_live_view`` either loads an agent-supplied ``module_url`` or resolves
+a named viewer plugin to its served module. The component's "state" is opaque here — for
 Vitessce it is the Vitessce view config; a patch deep-merges into it.
 """
 
@@ -161,9 +161,10 @@ class LiveViewToolSet(ToolSet):
     ) -> tuple[str | None, dict | None, str | None]:
         """Resolve a viewer-plugin name to a served module URL (+ demo).
 
-        A viewer plugin is ``skills/live_view/<name>.js`` — a setup(lv, root)
-        module. It may ship a ``<name>.demo.json`` next to it: a ready,
-        verified config used when open_live_view is called with no state.
+        A viewer plugin is a folder ``skills/live_view/<name>/`` holding
+        ``adapter.js`` (a setup(lv, root) module) and an optional
+        ``demo.json`` — a ready, verified config used when open_live_view is
+        called with no state.
 
         Returns ``(url, demo_or_None, None)`` on success, or
         ``(None, None, error)`` if no such plugin exists.
@@ -173,15 +174,16 @@ class LiveViewToolSet(ToolSet):
 
         s = get_settings()
         candidates = [
-            s.skills_dir / "live_view" / f"{name}.js",
-            s.global_skills_dir / "live_view" / f"{name}.js",
+            s.skills_dir / "live_view" / name / "adapter.js",
+            s.global_skills_dir / "live_view" / name / "adapter.js",
         ]
         adapter = next((p for p in candidates if p.exists()), None)
         if adapter is None:
             return None, None, (
                 f"Unknown viewer '{name}': no plugin at "
-                f"skills/live_view/{name}.js. For a bespoke component, open a "
-                f"view with view_type='custom' and your own module_url."
+                f"skills/live_view/{name}/adapter.js. For a bespoke "
+                f"component, open a view with view_type='custom' and your "
+                f"own module_url."
             )
         server = await self._ensure_data_server()
         url = server.url_for(adapter.resolve())
@@ -189,7 +191,7 @@ class LiveViewToolSet(ToolSet):
             return None, None, f"viewer plugin '{name}' is outside the served roots"
 
         demo: dict | None = None
-        demo_file = adapter.parent / f"{name}.demo.json"
+        demo_file = adapter.parent / "demo.json"
         if demo_file.exists():
             try:
                 demo = _json.loads(demo_file.read_text())
@@ -213,7 +215,7 @@ class LiveViewToolSet(ToolSet):
         the generic host. There are two ways to pick that module:
 
           * a **viewer plugin** — pass `view_type` as the plugin name (e.g.
-            "vitessce"); it is resolved to `skills/live_view/<name>.js`.
+            "vitessce"); it resolves to `skills/live_view/<name>/adapter.js`.
           * an **agent-generated component** — pass `view_type="custom"` and
             `module_url`, the served URL (from serve_local_data) of the JS
             module you wrote.

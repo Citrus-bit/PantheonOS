@@ -20,11 +20,12 @@ the result back.
 Load the relevant skill file before building a visualization.
 
 **Architecture** — only the LiveView SDK runtime is built in. Every viewer
-is a **plugin**: a JS module exporting `setup(lv, root)` that lives next to
-its skill file (e.g. `skills/live_view/vitessce.js`). `open_live_view`
-either resolves a named viewer plugin (`view_type="vitessce"`) or loads an
-agent-generated component (`view_type="custom"` + `module_url`). Adding a
-viewer = dropping a `.md` + `.js` pair here; no app code changes.
+is a **plugin**: a folder `skills/live_view/<name>/` holding `<name>.md`
+(this guide), `adapter.js` (a `setup(lv, root)` module), and an optional
+`demo.json`. `open_live_view` either resolves a named viewer plugin
+(`view_type="vitessce"`) or loads an agent-generated component
+(`view_type="custom"` + `module_url`). Adding a viewer = dropping a new
+`<name>/` folder here; no app code changes.
 
 ## Available skills
 
@@ -34,7 +35,7 @@ Open a Vitessce browser to explore spatial transcriptomics, single-cell, and
 microscopy-imaging datasets: spatial scatterplots, gene-expression coloring,
 heatmaps, cell-set selection, image layers.
 
-**Skill file**: [vitessce.md](./vitessce.md)
+**Skill file**: [vitessce/vitessce.md](./vitessce/vitessce.md)
 
 **When to use**:
 - Visualizing spatial transcriptomics (10x Visium, Xenium, MERFISH, …)
@@ -50,7 +51,7 @@ Open a Viv viewer for high-resolution, multiplexed bioimaging — OME-TIFF
 and OME-Zarr (OME-NGFF): multichannel fluorescence, microscopy, IF/IMC/
 CODEX, whole-slide images. Channel colors, contrast, pan/zoom, overview.
 
-**Skill file**: [viv.md](./viv.md)
+**Skill file**: [viv/viv.md](./viv/viv.md)
 
 **When to use**:
 - The data *is an image* — OME-TIFF / OME-Zarr microscopy
@@ -58,6 +59,21 @@ CODEX, whole-slide images. Channel colors, contrast, pan/zoom, overview.
 - Cloud-hosted or local bioimages (served via `serve_local_data`)
 - **Overlaying a cell segmentation / showing cell boundaries** on an image
   (boundaries as an extra channel — the preferred way to *view* a mask)
+
+### Mol* — 3D molecular structures
+
+Open a Mol* viewer for 3D macromolecular structures — proteins, nucleic
+acids, complexes — from the RCSB PDB, the AlphaFold DB, or a local
+`.pdb` / `.cif` file. Rotate, zoom, inspect; AlphaFold models colour by
+pLDDT.
+
+**Skill file**: [molstar/molstar.md](./molstar/molstar.md)
+
+**When to use**:
+- Showing a protein / nucleic-acid 3D structure (experimental or predicted)
+- Visualising an AlphaFold prediction
+- Any `.pdb` / `.cif` structure file (see also the `structural_biology` skill
+  for obtaining / predicting structures)
 
 ### Generate a custom LiveView app
 

@@ -304,7 +304,7 @@ there is a **bundled, verified** public config. Open it with **no `state`**:
 open_live_view(view_type="vitessce", title="Spatial Transcriptomics Demo")
 ```
 
-The viewer auto-loads its `vitessce.demo.json` (Human lymph node 10x Visium,
+The viewer auto-loads its bundled `demo.json` (Human lymph node 10x Visium,
 public data). **Do NOT web-search for a config, build one, or delegate that
 to a sub-agent** — the demo is built in. Only build a config yourself when
 the user wants their *own* data (see above).

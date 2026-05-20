@@ -45,7 +45,7 @@ open_live_view(view_type="viv", title="Bioimage Viewer Demo")
 ```
 
 A verified public OME-TIFF (Vanderbilt 4-channel kidney mxIF) loads
-automatically via `viv.demo.json`. Do NOT web-search for an image.
+automatically via the bundled `demo.json`. Do NOT web-search for an image.
 
 ## The state — what Viv shows
 
