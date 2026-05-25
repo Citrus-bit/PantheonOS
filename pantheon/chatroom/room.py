@@ -272,6 +272,11 @@ class ChatRoom(ToolSet):
                 total = _psutil.virtual_memory().total
                 metrics["mem_used_mb"] = round(rss / 1024 / 1024, 1)
                 metrics["mem_percent"] = round(rss / total * 100, 1) if total > 0 else 0.0
+                # Static allocation snapshot — what the runtime actually
+                # has, so the UI can show "12.3% of 8 vCPU · 1.2/12 GiB"
+                # without having to also know what Hub configured.
+                metrics["cpu_count"] = _psutil.cpu_count(logical=True)
+                metrics["mem_total_mb"] = round(total / 1024 / 1024, 1)
             except Exception:
                 pass  # process may have exited or psutil failed — omit silently
 
